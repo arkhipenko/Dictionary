@@ -1,0 +1,18 @@
+{
+  "name":"Dictionary",
+  "description":"A dictionary data type with a fast b-tree based search",
+  "keywords":"hash,dictionary,config,json,parse",
+  "authors":
+  {
+    "name": "Anatoli Arkhipenko",
+    "maintainer": true
+  },
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/arkhipenko/Dictionary.git"
+  },
+  "version": "1.0.0",
+  "frameworks": "arduino",
+  "platforms": "*"
+}

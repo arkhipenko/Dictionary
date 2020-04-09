@@ -1,0 +1,26 @@
+#######################################
+# Syntax Coloring Map For TaskManager
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Dictionary	KEYWORD1
+
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+insert	KEYWORD2
+search	KEYWORD2
+destroy_tree	KEYWORD2
+count	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+
+
+#######################################
+
