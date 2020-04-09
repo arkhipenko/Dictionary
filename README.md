@@ -57,19 +57,27 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 `dict->search("port")`  will return "80"
 
+`d[0]` will return "devices"
+
+`d[3]` will return "80"
+
+`dict->value(4)` will return "buckeroo"
+
 
 
 ##### Lookup keys:
 
-`d[0]` will return "ssid"
+`d(0)` will return "ssid"
 
-`d[1]` will return "\*\*\*\*\*\*\*\*"
+`d(1)` will return "pwd"
 
-`d[10]` will return an empty string as this is out of current bounds.   **or**
+`d(10)` will return an empty string as this is out of current bounds.   **or**
 
 `dict->key(0)` will return "ssid";
 
-`d.count()` returns a number of pairs in the dictionary 
+`d.count()` returns a number of key-value pairs in the dictionary 
+
+**NOTE**: Indexes are assigned in the order the kay-values are inserted. You **cannot** assign `d(0, "test")`
 
 
 
@@ -87,9 +95,9 @@ There is no deletion implemented as it would require lengthy updates to the unde
 Serial.println("{");
 for (int i = 0; i < d.count(); i++) {
    Serial.print("\t\"");
-   Serial.print(d[i]);
+   Serial.print(d(i));
    Serial.print("\" : \"");
-   Serial.print(d[d[i]]); 
+   Serial.print(d[i]); 
    if (i < d.count() - 1) Serial.println("\",");
    else Serial.println();
 }

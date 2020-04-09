@@ -67,17 +67,23 @@ class Dictionary {
       if (p) return p->keystr;
       else return String();
     }
+    String value(unsigned int i) {
+      node* p = (*Q)[i];
+      if (p) return p->valstr;
+      else return String();
+    }
     String operator [] (String keystr) {
       return search(keystr);
     }
     String operator [] (unsigned int i) {
-      return key(i);
+      return value(i);
     }
-
     void operator () (String keystr, String valstr) {
       insert (keystr, valstr);
     }
-
+    String operator () (unsigned int i) {
+      return key(i);
+    }
     inline const size_t count() {
       return Q->count();
     }
