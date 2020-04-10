@@ -8,10 +8,11 @@ I was looking for a small, but flexible class implementing **Dictionary** or **H
 
 I needed this to work with JSON files and configuration parameters like
 
-`"ssid" = "your_wifi"``
+```
+"ssid" = "your_wifi"
 
-``"ota_url" = "http://some.url"`
-
+"ota_url" = "http://some.url"
+```
 This dictionary only works with `String` objects. 
 
 Under the hood is a binary-tree structure based on the CRC32 (or CRC64 if you want) hash of the key strings to make lookups fast.  Key collisions are taken care of, so **plumless** and **backeroo** will properly create separate entries... :)
