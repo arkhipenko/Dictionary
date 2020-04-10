@@ -77,15 +77,27 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 `dict->key(0)` will return "ssid";
 
+**NOTE**: Indexes are assigned in the order the kay-values are inserted. You **cannot** assign `d(0, "test")`
+
+
+
+##### Information and compare:
+
+`if (d == a)` will return true if dictionaries are identical
+
+`if (d != a)` will return true if dictionaries are not identical
+
 `d.count()` returns a number of key-value pairs in the dictionary 
 
-**NOTE**: Indexes are assigned in the order the kay-values are inserted. You **cannot** assign `d(0, "test")`
+`d.size()` returns combined lengths (in bytes) of all key and value strings (including trailing zeros). If you need to exclude space required for trailing zeros subtract `2*count()` from the number returned by `size()`. 
 
 
 
 ##### Deleting kay-value pairs
 
-There is no deletion implemented as it would require lengthy updates to the underlying binary tree structure and in my opinion is not worth the performance and code overhead. *Sorry*. 
+There is no deletion of single key-value pairs implemented as it would require lengthy updates to the underlying binary tree structure and in my opinion is not worth the performance and code overhead. *Sorry*. 
+
+However, you *can* nuke the entire dictionary with a `d.destroy()` method.  
 
 
 

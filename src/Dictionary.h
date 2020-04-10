@@ -23,9 +23,15 @@
 
   ---
 
-  2020-04-09:
-    v1.0.0 - Initial release
+  v1.0.0:
+    2020-04-09 - Initial release
 
+  v1.0.1:
+    2020-04-10 - feature: operator (), examples, benchmarks
+    
+  v1.0.2:
+    2020-04-10 - feature: operators == and !=
+                 bug: memory leak after destroy method call. 
 
 */
 
@@ -61,7 +67,7 @@ class Dictionary {
 
     void insert(String keystr, String valstr);
     String search(String keystr);
-    void destroy_tree();
+    void destroy();
     String key(unsigned int i) {
       node* p = (*Q)[i];
       if (p) return p->keystr;
@@ -84,9 +90,13 @@ class Dictionary {
     String operator () (unsigned int i) {
       return key(i);
     }
+    bool operator == (Dictionary& b);
+    bool operator != (Dictionary& b);
     inline const size_t count() {
       return Q->count();
     }
+    
+    size_t size();
 
   private:
     void destroy_tree(node *leaf);
@@ -97,6 +107,7 @@ class Dictionary {
     node                *root;
     uintNN_t            table[0x100];
     QueueArray<node *>* Q;
+    size_t              initSize;
 };
 
 
@@ -129,11 +140,12 @@ Dictionary::Dictionary(size_t init_size) {
 #endif
 
   Q = new QueueArray<node *>(init_size);
+  initSize = init_size;
 }
 
 
 Dictionary::~Dictionary() {
-  destroy_tree();
+  destroy();
   delete Q;
 }
 
@@ -231,8 +243,36 @@ String Dictionary::search(String keystr) {
 }
 
 
-void Dictionary::destroy_tree() {
+void Dictionary::destroy() {
   destroy_tree(root);
+  delete Q;
+  Q = new QueueArray<node *>(initSize);
+}
+
+
+size_t Dictionary::size() {
+  size_t ct = count();
+  size_t sz = 0;
+  for (size_t i = 0; i < ct; i++) {
+    sz += key(i).length();
+    sz += value(i).length();
+    sz += 2;  // to account for the 2 trailing zeros
+  }
+  return sz;
+}
+
+bool Dictionary::operator == (Dictionary& b) {
+  if (b.size() != size() ) return false;
+  if (b.count() != count() ) return false;
+  size_t ct = count();
+  for (size_t i = 0; i < ct; i++) {
+    if ( value(i) != b[key(i)] ) return false;
+  }
+  return true;
+}
+
+bool Dictionary::operator != (Dictionary& b) {
+  return ( !(*this == b));
 }
 
 #ifdef _DICT_CRC64_

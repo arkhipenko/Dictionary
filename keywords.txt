@@ -15,7 +15,7 @@ Dictionary	KEYWORD1
 
 insert	KEYWORD2
 search	KEYWORD2
-destroy_tree	KEYWORD2
+destroy	KEYWORD2
 count	KEYWORD2
 
 #######################################
