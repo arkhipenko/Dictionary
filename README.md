@@ -8,8 +8,9 @@ I was looking for a small, but flexible class implementing **Dictionary** or **H
 
 I needed this to work with JSON files and configuration parameters like
 
-`"ssid" = "your_wifi"`
-`"ota_url" = "http://some.url"`
+`"ssid" = "your_wifi"``
+
+``"ota_url" = "http://some.url"`
 
 This dictionary only works with `String` objects. 
 
@@ -145,6 +146,24 @@ I was able to create ~400 entries and print them in a simple JSON format before 
 	"key3" : "This is value number 3",
 	"key4" : "This is value number 4",
 ```
+
+
+
+#### Benchmarking:
+
+###### ESP8266 (Wemos R1 running at 80 MHz)
+
+400 random keys (4-15 characters long), 1000 lookups
+
+- CRC32: ~32.5 microseconds/lookup
+- CRC64: ~68.5 microseconds/lookup
+
+###### ESP32 (ESP32 WRoom Dev Board  running at 240 MHz)
+
+2000 random keys (4-25 characters long), 20000 lookups
+
+- CRC32: ~9.1 microseconds/lookup
+- CRC64: ~9.3 microseconds/lookup
 
 
 
