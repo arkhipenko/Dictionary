@@ -140,6 +140,7 @@ will produce this:
 - **CRC32 code** (modified) - by Björn Samuelsson ([here](http://home.thep.lu.se/~bjorn/crc/))
 - **CRC64 code** (modified) - from Linus Torvalds Linux kernel source tree ([here](https://github.com/torvalds/linux/blob/master/lib/crc64.c))
 - **Probability of CRC collisions** discussion ([here](https://stackoverflow.com/questions/14210298/probability-of-collision-when-using-a-32-bit-hash))
+- **Examples of CRC32 collisions** artcile ([here](https://preshing.com/20110504/hash-collision-probabilities/))
 
 That should be everyone. Apologies if I missed anyone - will update as soon as I remember. 
 
