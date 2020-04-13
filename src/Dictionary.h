@@ -36,6 +36,9 @@
   v1.1.0:
     2020-04-12 - feature: delete a node method.
                  feature: Dictionary Array optimization
+                 
+  v1.1.1:
+    2020-04-13 - feature: check if key exists via d("key")
 
 */
 
@@ -96,6 +99,9 @@ class Dictionary {
     void operator () (String keystr, String valstr) {
       insert (keystr, valstr);
     }
+    
+    bool operator () (String keystr);
+    
     String operator () (unsigned int i) {
       return key(i);
     }
@@ -219,6 +225,15 @@ void Dictionary::insert(uintNN_t key, String *keystr, String *valstr, node *leaf
     }
   }
 }
+
+bool Dictionary::operator () (String keystr) {
+  uintNN_t key = crc(keystr.c_str(), keystr.length());
+
+  node *p = search(key, root, &keystr);
+  if (p) return true;
+  return false;
+}
+
 
 node *Dictionary::search(uintNN_t key, node *leaf, String* keystr) {
   if (leaf != NULL) {

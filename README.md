@@ -87,6 +87,10 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 `if (d != a)` will return true if dictionaries are not identical
 
+`d("ssid")` will return **true** indicating that the key "ssid" exists in the dictionary
+
+`d("something-else")` will return **false** indicating that the key "something-else" does not exist in the dictionary
+
 `d.count()` returns a number of key-value pairs in the dictionary 
 
 `d.size()` returns combined lengths (in bytes) of all key and value strings (including trailing zeros). If you need to exclude space required for trailing zeros subtract `2*count()` from the number returned by `size()`. 
