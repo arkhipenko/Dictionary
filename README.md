@@ -95,9 +95,25 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 ##### Deleting kay-value pairs
 
-There is no deletion of single key-value pairs implemented as it would require lengthy updates to the underlying binary tree structure and in my opinion is not worth the performance and code overhead. *Sorry*. 
+There is no deletion of single key-value pairs *by default*. It requires additional updates to the underlying binary tree structure and is not needed in most cases.
 
-However, you *can* nuke the entire dictionary with a `d.destroy()` method.  
+You *can* nuke the entire dictionary with a `d.destroy()` method, but I recommend deleting and recreating the object instead due to memory fragmentation issues.
+
+If you absolutely have to delete nodes, compile the library with `#define _DICT_DELETE_KEYS_`  compile option (place is before the `#include <Dictionary.h>` statement)
+
+That compile option will open up the following method:
+
+`d.remove("url")` will remove the key "url" and value "http://ota.home.lan" from the dictionary.
+
+**A very important NOTE:** the key indexes are assigned as entries are added the dictionary. However, due to deletion algorithm, once you delete a single key, the order of the keys is changed and no longer corresponds to the original order. In other words, once you start using deletion, the index of the keys is arbitrary. **Also**, as you delete the entries, the count and indexes of individual entries change. Be very careful how you deal with that in a loop. Once you delete entry i, the entry i+1 may change and be not what you expected. For instance, the right way to delete all entries in a loop is:
+
+```c++
+for (int i=0; i < d.count(); i++) {
+  d.remove(d(0));
+}
+```
+
+Note how you always delete *index 0*, and not *index i*, since once the entry at index 0 is removed, some other entry becomes entry with index 0, and removing entry "i" will lead to skipping entries and not deleting the entire dictionary.
 
 
 
@@ -140,7 +156,8 @@ will produce this:
 - **CRC32 code** (modified) - by Björn Samuelsson ([here](http://home.thep.lu.se/~bjorn/crc/))
 - **CRC64 code** (modified) - from Linus Torvalds Linux kernel source tree ([here](https://github.com/torvalds/linux/blob/master/lib/crc64.c))
 - **Probability of CRC collisions** discussion ([here](https://stackoverflow.com/questions/14210298/probability-of-collision-when-using-a-32-bit-hash))
-- **Examples of CRC32 collisions** artcile ([here](https://preshing.com/20110504/hash-collision-probabilities/))
+- **Examples of CRC32 collisions** article ([here](https://preshing.com/20110504/hash-collision-probabilities/))
+- **Deletion of b-tree entries** article ([here](https://www.geeksforgeeks.org/binary-search-tree-set-2-delete/))
 
 That should be everyone. Apologies if I missed anyone - will update as soon as I remember. 
 

@@ -17,6 +17,7 @@ insert	KEYWORD2
 search	KEYWORD2
 destroy	KEYWORD2
 count	KEYWORD2
+remove	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)

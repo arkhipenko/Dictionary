@@ -32,6 +32,10 @@
   v1.0.2:
     2020-04-10 - feature: operators == and !=
                  bug: memory leak after destroy method call. 
+                 
+  v1.1.0:
+    2020-04-12 - feature: delete a node method.
+                 feature: Dictionary Array optimization
 
 */
 
@@ -39,11 +43,11 @@
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
 
-#include "QueueArray.h"
+#include "DictionaryArray.h"
 
 
 //#define _DICT_CRC64_
-
+//#define _DICT_DELETE_KEYS_
 
 #ifdef _DICT_CRC64_
 #define uintNN_t uint64_t
@@ -68,6 +72,11 @@ class Dictionary {
     void insert(String keystr, String valstr);
     String search(String keystr);
     void destroy();
+
+#ifdef _DICT_DELETE_KEYS_
+    void remove(String keystr);
+#endif
+
     String key(unsigned int i) {
       node* p = (*Q)[i];
       if (p) return p->keystr;
@@ -91,22 +100,29 @@ class Dictionary {
       return key(i);
     }
     bool operator == (Dictionary& b);
-    bool operator != (Dictionary& b);
+    inline bool operator != (Dictionary& b) {
+      return ( !(*this == b));
+    }
     inline const size_t count() {
       return Q->count();
     }
-    
+
     size_t size();
 
   private:
-    void destroy_tree(node *leaf);
-    void insert(uintNN_t key, String* keystr, String* valstr, node *leaf);
-    node *search(uintNN_t key, node *leaf, String* keystr);
-    uintNN_t crc(const void *data, size_t n_bytes);
+    void     destroy_tree(node* leaf);
+    void     insert(uintNN_t key, String* keystr, String* valstr, node* leaf);
+    node*    search(uintNN_t key, node* leaf, String* keystr);
+    uintNN_t crc(const void* data, size_t n_bytes);
 
-    node                *root;
+#ifdef _DICT_DELETE_KEYS_
+    node*    deleteNode(node* root, uintNN_t key, String* keystr);
+    node*    minValueNode(node* n);
+#endif
+
+    node*               root;
     uintNN_t            table[0x100];
-    QueueArray<node *>* Q;
+    DictionaryArray<node *>* Q;
     size_t              initSize;
 };
 
@@ -139,7 +155,7 @@ Dictionary::Dictionary(size_t init_size) {
   }
 #endif
 
-  Q = new QueueArray<node *>(init_size);
+  Q = new DictionaryArray<node *>(init_size);
   initSize = init_size;
 }
 
@@ -168,7 +184,7 @@ void Dictionary::insert(uintNN_t key, String *keystr, String *valstr, node *leaf
       leaf->left->valstr = *valstr;
       leaf->left->left = NULL;  //Sets the left child of the child node to null
       leaf->left->right = NULL; //Sets the right child of the child node to null
-      Q->enqueue(leaf->left);
+      Q->append(leaf->left);
     }
   }
   else if (key > leaf->key) {
@@ -181,7 +197,7 @@ void Dictionary::insert(uintNN_t key, String *keystr, String *valstr, node *leaf
       leaf->right->valstr = *valstr;
       leaf->right->left = NULL; //Sets the left child of the child node to null
       leaf->right->right = NULL; //Sets the right child of the child node to null
-      Q->enqueue(leaf->right);
+      Q->append(leaf->right);
     }
   }
   else if (key == leaf->key) {
@@ -198,7 +214,7 @@ void Dictionary::insert(uintNN_t key, String *keystr, String *valstr, node *leaf
         leaf->right->valstr = *valstr;
         leaf->right->left = NULL; //Sets the left child of the child node to null
         leaf->right->right = NULL; //Sets the right child of the child node to null
-        Q->enqueue(leaf->right);
+        Q->append(leaf->right);
       }
     }
   }
@@ -229,7 +245,7 @@ void Dictionary::insert(String keystr, String valstr) {
     root->valstr = valstr;
     root->left = NULL;
     root->right = NULL;
-    Q->enqueue(root);
+    Q->append(root);
   }
 }
 
@@ -246,7 +262,7 @@ String Dictionary::search(String keystr) {
 void Dictionary::destroy() {
   destroy_tree(root);
   delete Q;
-  Q = new QueueArray<node *>(initSize);
+  Q = new DictionaryArray<node *>(initSize);
 }
 
 
@@ -271,9 +287,82 @@ bool Dictionary::operator == (Dictionary& b) {
   return true;
 }
 
-bool Dictionary::operator != (Dictionary& b) {
-  return ( !(*this == b));
+
+#ifdef _DICT_DELETE_KEYS_
+
+void Dictionary::remove(String keystr) {
+  uintNN_t key = crc(keystr.c_str(), keystr.length());
+  node *p = search(key, root, &keystr);
+
+  if (p) deleteNode(root, p->key, &keystr);
 }
+
+node* Dictionary::deleteNode(node* root, uintNN_t key, String* keystr) {
+  if (root == NULL) return root;
+
+  if (key < root->key)
+    root->left = deleteNode(root->left, key, keystr);
+
+  // If the key to be deleted is greater than the root's key,
+  // then it lies in right subtree
+  else if (key > root->key)
+    root->right = deleteNode(root->right, key, keystr);
+
+  // if key is same as root's key, then This is the node
+  // to be deleted
+  else {
+    if (root->keystr == *keystr) {
+      // node with only one child or no child
+      if (root->left == NULL) {
+        node* temp = root->right;
+        Q->remove(root);
+        delete root;
+        return temp;
+      }
+      else if (root->right == NULL)
+      {
+        node* temp = root->left;
+        Q->remove(root);
+        delete root;
+        return temp;
+      }
+
+      // node with two children: Get the inorder successor (smallest
+      // in the right subtree)
+      node* temp = minValueNode(root->right);
+
+      // Copy the inorder successor's content to this node
+      root->key = temp->key;
+      root->keystr = temp->keystr;
+      root->valstr = temp->valstr;
+
+      // Delete the inorder successor
+      root->right = deleteNode(root->right, temp->key, &temp->keystr);
+    }
+    else {
+      root->right = deleteNode(root->right, key, keystr);
+    }
+  }
+  return root;
+}
+
+
+node* Dictionary::minValueNode(node* n) {
+  node* current = n;
+
+  /* loop down to find the leftmost leaf */
+  while (current && current->left != NULL)
+    current = current->left;
+
+  return current;
+}
+
+
+#endif // _DICT_DELETE_KEYS_
+
+//bool Dictionary::operator != (Dictionary& b) {
+//  return ( !(*this == b));
+//}
 
 #ifdef _DICT_CRC64_
 uintNN_t Dictionary::crc(const void *p, size_t len) {
@@ -298,4 +387,3 @@ uintNN_t Dictionary::crc(const void *data, size_t n_bytes) {
 #endif
 
 #endif // #define _DICTIONARY_H_
-
