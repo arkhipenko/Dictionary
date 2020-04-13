@@ -108,12 +108,19 @@ That compile option will open up the following method:
 **A very important NOTE:** the key indexes are assigned as entries are added the dictionary. However, due to deletion algorithm, once you delete a single key, the order of the keys is changed and no longer corresponds to the original order. In other words, once you start using deletion, the index of the keys is arbitrary. **Also**, as you delete the entries, the count and indexes of individual entries change. Be very careful how you deal with that in a loop. Once you delete entry i, the entry i+1 may change and be not what you expected. For instance, the right way to delete all entries in a loop is:
 
 ```c++
-for (int i=0; i < d.count(); i++) {
+int cnt = d.count();
+for (int i=0; i < cnt; i++) {
   d.remove(d(0));
 }
 ```
 
 Note how you always delete *index 0*, and not *index i*, since once the entry at index 0 is removed, some other entry becomes entry with index 0, and removing entry "i" will lead to skipping entries and not deleting the entire dictionary.
+
+An even better way to delete every entry would be:
+
+```c++
+while ( d.count() ) d.remove(d(0));
+```
 
 
 
