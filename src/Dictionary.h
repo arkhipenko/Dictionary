@@ -39,6 +39,10 @@
                  
   v1.1.1:
     2020-04-13 - feature: check if key exists via d("key")
+    
+  v1.2.0:
+    2020-04-25 - bug: incorrect node handling during deletion
+                 performance improvements
 
 */
 
@@ -46,26 +50,10 @@
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
 
-#include "DictionaryArray.h"
+#include "NodeArray.h"
 
 
 //#define _DICT_CRC64_
-//#define _DICT_DELETE_KEYS_
-
-#ifdef _DICT_CRC64_
-#define uintNN_t uint64_t
-#else
-#define uintNN_t uint32_t
-#endif
-
-typedef struct node
-{
-  uintNN_t key;
-  String keystr;
-  String valstr;
-  node *left;
-  node *right;
-};
 
 class Dictionary {
   public:
@@ -75,10 +63,7 @@ class Dictionary {
     void insert(String keystr, String valstr);
     String search(String keystr);
     void destroy();
-
-#ifdef _DICT_DELETE_KEYS_
     void remove(String keystr);
-#endif
 
     String key(unsigned int i) {
       node* p = (*Q)[i];
@@ -115,26 +100,34 @@ class Dictionary {
 
     size_t size();
 
+#ifdef _LIBDEBUG_
+    void printNode(node* root);
+    void printDictionary(node* root);
+    void printDictionary() { 
+      Serial.printf("\nDictionary::printDictionary:\n");
+      printDictionary(iRoot); 
+      Serial.println();
+    };
+    void printArray() { Q->printArray(); };
+#endif
   private:
     void     destroy_tree(node* leaf);
     void     insert(uintNN_t key, String* keystr, String* valstr, node* leaf);
     node*    search(uintNN_t key, node* leaf, String* keystr);
     uintNN_t crc(const void* data, size_t n_bytes);
 
-#ifdef _DICT_DELETE_KEYS_
     node*    deleteNode(node* root, uintNN_t key, String* keystr);
     node*    minValueNode(node* n);
-#endif
 
-    node*               root;
+    node*               iRoot;
     uintNN_t            table[0x100];
-    DictionaryArray<node *>* Q;
+    NodeArray*          Q;
     size_t              initSize;
 };
 
 
 Dictionary::Dictionary(size_t init_size) {
-  root = NULL;
+  iRoot = NULL;
 
 #ifdef _DICT_CRC64_
   const uintNN_t m_poly = 0xC96C5795D7870F42ull;
@@ -161,7 +154,7 @@ Dictionary::Dictionary(size_t init_size) {
   }
 #endif
 
-  Q = new DictionaryArray<node *>(init_size);
+  Q = new NodeArray(init_size);
   initSize = init_size;
 }
 
@@ -229,7 +222,7 @@ void Dictionary::insert(uintNN_t key, String *keystr, String *valstr, node *leaf
 bool Dictionary::operator () (String keystr) {
   uintNN_t key = crc(keystr.c_str(), keystr.length());
 
-  node *p = search(key, root, &keystr);
+  node *p = search(key, iRoot, &keystr);
   if (p) return true;
   return false;
 }
@@ -251,16 +244,16 @@ node *Dictionary::search(uintNN_t key, node *leaf, String* keystr) {
 void Dictionary::insert(String keystr, String valstr) {
   uintNN_t key = crc( keystr.c_str(), keystr.length() );
 
-  if (root != NULL)
-    insert(key, &keystr, &valstr, root);
+  if (iRoot != NULL)
+    insert(key, &keystr, &valstr, iRoot);
   else {
-    root = new node;
-    root->key = key;
-    root->keystr = keystr;
-    root->valstr = valstr;
-    root->left = NULL;
-    root->right = NULL;
-    Q->append(root);
+    iRoot = new node;
+    iRoot->key = key;
+    iRoot->keystr = keystr;
+    iRoot->valstr = valstr;
+    iRoot->left = NULL;
+    iRoot->right = NULL;
+    Q->append(iRoot);
   }
 }
 
@@ -268,16 +261,16 @@ void Dictionary::insert(String keystr, String valstr) {
 String Dictionary::search(String keystr) {
   uintNN_t key = crc(keystr.c_str(), keystr.length());
 
-  node *p = search(key, root, &keystr);
+  node *p = search(key, iRoot, &keystr);
   if (p) return p->valstr;
   return String("");
 }
 
 
 void Dictionary::destroy() {
-  destroy_tree(root);
+  destroy_tree(iRoot);
   delete Q;
-  Q = new DictionaryArray<node *>(initSize);
+  Q = new NodeArray(initSize);
 }
 
 
@@ -303,13 +296,22 @@ bool Dictionary::operator == (Dictionary& b) {
 }
 
 
-#ifdef _DICT_DELETE_KEYS_
-
 void Dictionary::remove(String keystr) {
+#ifdef _LIBDEBUG_
+  Serial.printf( "Dictionary::remove: %s\n", keystr.c_str() );
+#endif
+  
   uintNN_t key = crc(keystr.c_str(), keystr.length());
-  node *p = search(key, root, &keystr);
+  node *p = search(key, iRoot, &keystr);
 
-  if (p) deleteNode(root, p->key, &keystr);
+  if (p) { 
+#ifdef _LIBDEBUG_
+  Serial.printf( "Found key to delete int: %u\n", p->key );
+  Serial.printf( "Found key to delete ptr: %u\n", (uint32_t)p );
+  Serial.printf( "Found key to delete str: %s\n", keystr.c_str() );
+#endif
+    iRoot = deleteNode(iRoot, p->key, &keystr);
+  }
 }
 
 node* Dictionary::deleteNode(node* root, uintNN_t key, String* keystr) {
@@ -329,22 +331,38 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, String* keystr) {
     if (root->keystr == *keystr) {
       // node with only one child or no child
       if (root->left == NULL) {
+#ifdef _LIBDEBUG_
+  Serial.println("Replacing RIGHT node");
+  printNode(root);
+  printNode(root->right);
+#endif        
         node* temp = root->right;
         Q->remove(root);
         delete root;
+        root = NULL;
         return temp;
-      }
-      else if (root->right == NULL)
-      {
+      } 
+      else if (root->right == NULL) {
+#ifdef _LIBDEBUG_
+  Serial.println("Replacing LEFT node");
+  printNode(root);
+  printNode(root->left);
+#endif 
         node* temp = root->left;
         Q->remove(root);
         delete root;
+        root = NULL;
         return temp;
       }
 
       // node with two children: Get the inorder successor (smallest
       // in the right subtree)
       node* temp = minValueNode(root->right);
+#ifdef _LIBDEBUG_
+  Serial.println("Replacing minValueNode node");
+  printNode(root);
+  printNode(temp);
+#endif 
 
       // Copy the inorder successor's content to this node
       root->key = temp->key;
@@ -373,11 +391,25 @@ node* Dictionary::minValueNode(node* n) {
 }
 
 
-#endif // _DICT_DELETE_KEYS_
+#ifdef _LIBDEBUG_
+void Dictionary::printDictionary(node* root) { 
+    if (root != NULL) 
+    { 
+        printDictionary(root->left); 
+        printNode(root);
+        printDictionary(root->right); 
+    } 
+} 
 
-//bool Dictionary::operator != (Dictionary& b) {
-//  return ( !(*this == b));
-//}
+void Dictionary::printNode(node* root)  { 
+    if (root != NULL) { 
+        Serial.printf("%u: (%u:%s) [l:%u, r:%u]\n", (uint32_t)root, root->key, (root->keystr).c_str(), (uint32_t)root->left, (uint32_t)root->right);
+    } 
+    else {
+        Serial.println("NULL:");
+    }
+}
+#endif
 
 #ifdef _DICT_CRC64_
 uintNN_t Dictionary::crc(const void *p, size_t len) {

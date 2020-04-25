@@ -1,6 +1,7 @@
 /*
- *  QueueArray.h
- *
+ *  NodeArray.h
+ * 
+ *  Adapted from QueueArray: 
  *  Library implementing a generic, dynamic queue (array version).
  *
  *  ---
@@ -23,27 +24,40 @@
  */
 
 // header defining the interface of the source.
-#ifndef _DICTIONARYARRAY_H
-#define _DICTIONARYARRAY_H
+#ifndef _NODEARRAY_H
+#define _NODEARRAY_H
 
-// include Arduino basic header.
 #include <Arduino.h>
 
-// the definition of the queue class.
-template<typename T>
-class DictionaryArray {
+#ifdef _DICT_CRC64_
+#define uintNN_t uint64_t
+#else
+#define uintNN_t uint32_t
+#endif
+
+struct node
+{
+  uintNN_t key;
+  String keystr;
+  String valstr;
+  node *left;
+  node *right;
+};
+
+
+class NodeArray {
   public:
     // init the queue (constructor).
-    DictionaryArray (unsigned int init_size = 10);
+    NodeArray (unsigned int init_size = 10);
 
     // clear the queue (destructor).
-    ~DictionaryArray ();
+    ~NodeArray ();
 
     // add an item to the queue.
-    void append (const T i);
+    void append (const node* i);
     
     // remove an item from the queue.
-    void remove (const T i);
+    void remove (const node* i);
 
     // check if the queue is empty.
     bool isEmpty () const;
@@ -55,14 +69,17 @@ class DictionaryArray {
     bool isFull () const;
 
    
-    T operator [] (const unsigned int i) {
+    node* operator [] (const unsigned int i) {
       if ( i >= items ) {
 //        exit ("QUEUE: Out of bounds");
         return NULL;
       }
-      T item = contents[i];
-      return item;
+      return contents[i];
     }
+
+#ifdef _LIBDEBUG_
+    void printArray();
+#endif
 
   private:
     // resize the size of the queue.
@@ -71,40 +88,26 @@ class DictionaryArray {
     // exit report method in case of error.
 //    void exit (const char * m) const;
 
-    // led blinking method in case of error.
-    // void blink () const;
-
     // the initial size of the queue.
     unsigned int initialSize;
 
-    // the pin number of the on-board led.
-    // static const int ledPin = 13;
-
-//    Print * printer; // the printer of the queue.
-    T * contents;    // the array of the queue.
+    node**        contents;    // the array of the queue.
 
     int size;        // the size of the queue.
     int items;       // the number of items of the queue.
-
-//    int head;        // the head of the queue.
     int tail;        // the tail of the queue.
 };
 
 // init the queue (constructor).
-template<typename T>
-DictionaryArray<T>::DictionaryArray (unsigned int init_size) {
+NodeArray::NodeArray (unsigned int init_size) {
   size = 0;       // set the size of queue to zero.
   items = 0;      // set the number of items of queue to zero.
-
-//  head = 0;       // set the head of the queue to zero.
   tail = 0;       // set the tail of the queue to zero.
   
   initialSize = init_size;
 
-//  printer = NULL; // set the printer of queue to point nowhere.
-
   // allocate enough memory for the array.
-  contents = (T *) malloc (sizeof (T) * initialSize);
+  contents = (node**) malloc (sizeof (node*) * initialSize);
 
   // if there is a memory allocation error.
   if (contents == NULL) return;
@@ -115,29 +118,24 @@ DictionaryArray<T>::DictionaryArray (unsigned int init_size) {
 }
 
 // clear the queue (destructor).
-template<typename T>
-DictionaryArray<T>::~DictionaryArray () {
+NodeArray::~NodeArray () {
   free (contents); // deallocate the array of the queue.
 
   contents = NULL; // set queue's array pointer to nowhere.
-//  printer = NULL;  // set the printer of queue to point nowhere.
 
   size = 0;        // set the size of queue to zero.
   items = 0;       // set the number of items of queue to zero.
-
-//  head = 0;        // set the head of the queue to zero.
   tail = 0;        // set the tail of the queue to zero.
 }
 
 // resize the size of the queue.
-template<typename T>
-void DictionaryArray<T>::resize (const int s) {
+void NodeArray::resize (const int s) {
   // defensive issue.
   if (s <= 0) return;
 //    exit ("QUEUE: error due to undesirable size for queue size.");
 
   // allocate enough memory for the temporary array.
-  T * temp = (T *) malloc (sizeof (T) * s);
+  node** temp = (node**) malloc (sizeof (node*) * s);
 
   // if there is a memory allocation error.
   if (temp == NULL) return;
@@ -154,7 +152,6 @@ void DictionaryArray<T>::resize (const int s) {
   contents = temp;
 
   // set the head and tail of the new queue.
-//  head = 0; 
   tail = items;
 
   // set the new size of the queue.
@@ -162,74 +159,77 @@ void DictionaryArray<T>::resize (const int s) {
 }
 
 // add an item to the queue.
-template<typename T>
-void DictionaryArray<T>::append (const T i) {
+void NodeArray::append (const node* i) {
   // check if the queue is full.
   if (isFull ())
     resize (size + initialSize);
 
   // store the item to the array.
-  contents[tail++] = i;
+  contents[tail++] = (node*)i;
   
   // increase the items.
   items++;
 }
 
 // remove an item from the queue.
-template<typename T>
-void DictionaryArray<T>::remove (T i) {
+void NodeArray::remove (const node* i) {
   // check if the queue is empty.
+
+#ifdef _LIBDEBUG_  
+    Serial.printf("NodeArray: request remove: %u\n", (uint32_t) i);
+#endif
+
   if (isEmpty ()) return;
 //    exit ("QUEUE: can't pop item from queue: queue is empty.");
 
-  int index = -1;
-  
-  for (int j=0; j<items; j++) {
-    if (i == contents[j]) {
-      index = j;
-      break;
+  if (items > 1) {
+    int index = -1;
+    
+    for (int j=0; j<items; j++) {
+      if (i == contents[j]) {
+        index = j;
+        break;
+      }
     }
-  }
-  
-  if (index < 0) return;  // how?
-  
-  for (int j=index; j<items-1; j++) {
-      contents[j] = contents[j+1];
+    
+    if (index < 0) return;  // how?
+    
+#ifdef _LIBDEBUG_  
+    Serial.printf("NodeArray: found index: %d\n", index);
+#endif
+    
+    for (int j=index; j<items-1; j++) {
+        contents[j] = contents[j+1];
+    }
   }
   tail--;
   items--;
 }
 
 
-/*
-// get the front of the queue.
-template<typename T>
-T DictionaryArray<T>::front () const {
-  // check if the queue is empty.
-  if (isEmpty ())
-    exit ("QUEUE: can't get the front item of queue: queue is empty.");
-    
-  // get the item from the array.
-  return contents[head];
+#ifdef _LIBDEBUG_
+void NodeArray::printArray () {
+  Serial.printf("\nNodeArray::printArray:\n");
+  for (int i=0; i<items; i++) {
+    Serial.printf("%d: %u\n", i, (uint32_t) contents[i]);
+  }
+  Serial.println();
 }
-*/
+#endif
 
 // check if the queue is empty.
-template<typename T>
-bool DictionaryArray<T>::isEmpty () const {
+bool NodeArray::isEmpty () const {
   return items == 0;
 }
 
 // check if the queue is full.
-template<typename T>
-bool DictionaryArray<T>::isFull () const {
+bool NodeArray::isFull () const {
   return items == size;
 }
 
 // get the number of items in the queue.
-template<typename T>
-int DictionaryArray<T>::count () const {
+int NodeArray::count () const {
   return items;
 }
 
-#endif // _DICTIONARYARRAY_H
+#endif // _NODEARRAY_H
