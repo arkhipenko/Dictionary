@@ -189,7 +189,7 @@ I was able to create ~400 entries and print them in a simple JSON format before 
 
 #### Benchmarking:
 
-###### ESP8266 (Wemos R1 running at 80 MHz)
+###### ESP8266 (Wemos R1 running at 160 MHz)
 
 400 random keys (4-15 characters long), 1000 lookups
 
