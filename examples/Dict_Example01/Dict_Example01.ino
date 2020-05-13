@@ -1,4 +1,6 @@
-#include <Dictionary.h>
+//#define #define _DICT_CRC_ 16
+//#define #define _DICT_CRC_ 32
+//#define #define _DICT_CRC_ 64
 
 #define _DEBUG_
 //#define _TEST_
@@ -10,6 +12,10 @@
 #define _PP(a)
 #define _PL(a)
 #endif
+
+
+#include <Dictionary.h>
+
 
 // ======================================================================
 void setup() {

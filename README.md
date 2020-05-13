@@ -15,9 +15,19 @@ I needed this to work with JSON files and configuration parameters like
 ```
 This dictionary only works with `String` objects. 
 
-Under the hood is a binary-tree structure based on the CRC32 (or CRC64 if you want) hash of the key strings to make lookups fast.  Key collisions are taken care of, so **plumless** and **backeroo** will properly create separate entries... :)
+Under the hood is a binary-tree structure based on the CRC32 (CRC16 or CRC64 if you want) hash of the key strings to make lookups fast.  Key collisions are taken care of, so **plumless** and **backeroo** will properly create separate entries... :)
 
-There is no reason to use CRC64 since key collisions are resolved explicitly. The storage and performance overhead is not worth it. 
+There is no reason to use CRC64 since key collisions are resolved explicitly. The storage and performance overhead is not worth it. CRC16 produces too much of the collision probability, but maybe more suitable for devices with less memory.
+
+To switch to alternative CRC calculation engine use the following statements:
+
+```c++
+#define _DICT_CRC_ 16
+#define _DICT_CRC_ 32   --> this is the default
+#define _DICT_CRC_ 64
+```
+
+ 
 
 #### Usage:
 

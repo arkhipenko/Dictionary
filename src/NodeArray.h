@@ -27,14 +27,6 @@
 #ifndef _NODEARRAY_H
 #define _NODEARRAY_H
 
-#include <Arduino.h>
-
-#ifdef _DICT_CRC64_
-#define uintNN_t uint64_t
-#else
-#define uintNN_t uint32_t
-#endif
-
 struct node
 {
   uintNN_t key;
