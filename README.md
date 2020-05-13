@@ -1,8 +1,10 @@
 # Dictionary
 
-### Dictionary data type
+## Dictionary data type
 
-#### Background
+[![arduino-library-badge](https://www.ardu-badge.com/badge/Dictionary.svg?)](https://www.ardu-badge.com/Dictionary)
+
+### Background
 
 I was looking for a small, but flexible class implementing **Dictionary** or **Hash** data type to use on ESP8266 or ESP32 microcontrollers.  In the end just decided to write my own. 
 
@@ -29,9 +31,9 @@ To switch to alternative CRC calculation engine use the following statements:
 
  
 
-#### Usage:
+### Usage:
 
-##### Creation:
+#### Creation:
 
 `Dictionary *dict = new Dictionary();` **or**
 
@@ -41,7 +43,7 @@ To switch to alternative CRC calculation engine use the following statements:
 
 
 
-##### Populate key-value pairs:
+#### Populate key-value pairs:
 
 ```c++
 d("ssid", "devices");
@@ -61,7 +63,7 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 
 
-##### Lookup values:
+#### Lookup values:
 
 `d["port"]`  will return "80"
 
@@ -77,7 +79,7 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 
 
-##### Lookup keys:
+#### Lookup keys:
 
 `d(0)` will return "ssid"
 
@@ -91,7 +93,7 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 
 
-##### Information and compare:
+#### Information and compare:
 
 `if (d == a)` will return true if dictionaries are identical
 
@@ -107,7 +109,7 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 
 
-##### Deleting kay-value pairs
+#### Deleting kay-value pairs
 
 You can nuke the entire dictionary with a `d.destroy()` method, but I recommend deleting and recreating the object instead due to memory fragmentation issues.
 
@@ -134,9 +136,9 @@ while ( d.count() ) d.remove(d(0));
 
 
 
-#### Examples:
+### Examples:
 
-##### Creating a simple JSON config file:
+#### Creating a simple JSON config file:
 
 ``` c++
 Serial.println("{");
@@ -166,7 +168,7 @@ will produce this:
 
 
 
-#### Credits and References: 
+### Credits and References: 
 
 - **QueueArray** (modified) - by Efstathios Chatzikyriakidis ([here](https://playground.arduino.cc/Code/QueueArray/))
 - **Binary Trees in C++** - by Alex Allain ([here](https://www.cprogramming.com/tutorial/lesson18.html))
@@ -180,7 +182,7 @@ That should be everyone. Apologies if I missed anyone - will update as soon as I
 
 
 
-#### Stress test:
+### Stress test:
 
 I was able to create ~400 entries and print them in a simple JSON format before starting to run into memory issues. Not a bad result for a small microcontroller:
 
@@ -197,16 +199,16 @@ I was able to create ~400 entries and print them in a simple JSON format before 
 
 
 
-#### Benchmarking:
+### Benchmarking:
 
-###### ESP8266 (Wemos R1 running at 160 MHz)
+##### ESP8266 (Wemos R1 running at 160 MHz)
 
 400 random keys (4-15 characters long), 1000 lookups
 
 - CRC32: ~32.5 microseconds/lookup
 - CRC64: ~68.5 microseconds/lookup
 
-###### ESP32 (ESP32 WRoom Dev Board  running at 240 MHz)
+##### ESP32 (ESP32 WRoom Dev Board  running at 240 MHz)
 
 2000 random keys (4-25 characters long), 20000 lookups
 
