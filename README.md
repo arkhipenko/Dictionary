@@ -8,14 +8,14 @@
 
 I was looking for a small, but flexible class implementing **Dictionary** or **Hash** data type to use on ESP8266 or ESP32 microcontrollers.  In the end just decided to write my own. 
 
-I needed this to work with JSON files and configuration parameters like
+I needed this to work with JSON files and configuration key-value parameters like
 
 ```
 "ssid" = "your_wifi"
 
 "ota_url" = "http://some.url"
 ```
-This dictionary only works with `String` objects. 
+This dictionary only works with `String` objects and character strings (char arrays)
 
 Under the hood is a binary-tree structure based on the CRC32 (CRC16 or CRC64 if you want) hash of the key strings to make lookups fast.  Key collisions are taken care of, so **plumless** and **backeroo** will properly create separate entries... :)
 
@@ -24,9 +24,9 @@ There is no reason to use CRC64 since key collisions are resolved explicitly. Th
 To switch to alternative CRC calculation engine use the following statements:
 
 ```c++
-#define _DICT_CRC_ 16
-#define _DICT_CRC_ 32   --> this is the default
-#define _DICT_CRC_ 64
+#define _DICT_CRC 16
+#define _DICT_CRC 32   --> this is the default
+#define _DICT_CRC 64
 ```
 
  
@@ -132,6 +132,39 @@ An even better way to delete every entry would be:
 
 ```c++
 while ( d.count() ) d.remove(d(0));
+```
+
+
+
+
+
+### Memory management:
+
+Dictionary allocates all its objects on the Heap. For ESP32 microcontrollers specifically there is an option to use PSRAM if present) as a storage option:
+
+```c++
+#define _DICT_USE_PSRAM
+```
+
+will make Dictionary try to allocate all its objects in the PSRAM.
+
+All methods that allocate memory are enabled to return error codes in case memory allocation fails.  Typically a success code is '0', so a simple comparison like this would be sufficient:
+
+```c++
+if ( d("key", "value") ) {
+	// this is an error situation on insert
+}
+// memory allocation was successful
+```
+
+
+
+### Error Codes:
+
+```C++
+#define DICTIONARY_OK    0	   // operation successful
+#define DICTIONARY_ERR   (-1)   // genaral error
+#define DICTIONARY_MEM   (-2)   // failed memory allocation
 ```
 
 

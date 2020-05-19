@@ -1,6 +1,9 @@
-//#define #define _DICT_CRC_ 16
-//#define #define _DICT_CRC_ 32
-//#define #define _DICT_CRC_ 64
+//#define _DICT_CRC_ 16
+//#define _DICT_CRC_ 32
+//#define _DICT_CRC_ 64
+//#define _DICT_USE_PSRAM
+//#define _DICT_KEYLEN 64
+//#define _DICT_VALLEN 256
 
 #define _DEBUG_
 //#define _TEST_

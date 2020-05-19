@@ -17,11 +17,20 @@ insert	KEYWORD2
 search	KEYWORD2
 destroy	KEYWORD2
 count	KEYWORD2
+size	KEYWORD2
 remove	KEYWORD2
+key	KEYWORD2
+value	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
-
+DICTIONARY_OK	LITERAL1
+DICTIONARY_ERR	LITERAL1
+DICTIONARY_MEM	LITERAL1
+_DICT_CRC	LITERAL1
+_DICT_KEYLEN	LITERAL1
+_DICT_VALLEN	LITERAL1
+_DICT_USE_PSRAM	LITERAL1
 
 #######################################
 
