@@ -61,6 +61,12 @@ If a key does not exist, a new key-value pair is created. If a key exists, the v
 
 will replace the old value of **buckeroo** for the same key with a new value of **buckeroonew**
 
+`d.merge(a)` will merge the key-value pairs from dictionary a into dictionary d
+
+`String s = "{\"ssid\":\"devices\",\"pwd\":\"********\"}";`
+
+`d.jload(s)` will populate dictionary d from the JSON string s
+
 
 
 #### Lookup values:
@@ -105,7 +111,22 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 `d.count()` returns a number of key-value pairs in the dictionary 
 
-`d.size()` returns combined lengths (in bytes) of all key and value strings (including trailing zeros). If you need to exclude space required for trailing zeros subtract `2*count()` from the number returned by `size()`. 
+`d.size()` returns combined lengths (in bytes) of all key and value strings (including trailing zeros) and other dictionary node elements. Basically this is how much space the dictionary date (not the C++ object, only the data elements) take up. 
+
+`d.jsize()` returns size of a JSON representation of the dictionary, as will be returned by the next method, so you can pre-allocate space if necessary. Zero terminator included.
+
+`d.json()` returns a String with a JSON representation of the dictionary. 
+
+```
+Example:
+
+d.json(): {"ssid":"devices","pwd":"********","url":"http://ota.home.net","port":"80","plumless":"plumless value","buckeroo":"buckeroo value"}
+d.jsize(): 132
+```
+
+**NOTE**: currently `json()` and `jsize()` methods are not taking potential quotation marks inside keys or values into account, so it is better not to use such values with JSON  functionality. 
+
+For instance a value `"the answer is \"no\"."` will probably break JSON functionality.
 
 
 

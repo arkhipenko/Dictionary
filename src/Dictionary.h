@@ -55,6 +55,11 @@
                  Switch to char* for key/values,
                  Error codes for memory-allocating methods
                  Key and Value max length constants
+                 
+  v.2.1.0:
+    2020-05-21 - feature: json output and load from json string
+                 feature: merge and '=' operator (proper assignment)
+                 bug fix: destroy heap corruption fixed
 
 */
 
@@ -73,6 +78,12 @@
 #define DICTIONARY_OK   0
 #define DICTIONARY_ERR   (-1)
 #define DICTIONARY_MEM   (-2)
+
+#define DICTIONARY_COMMA    (-20)
+#define DICTIONARY_COLON    (-21)
+#define DICTIONARY_QUOTE    (-22)
+#define DICTIONARY_BCKSL    (-23)
+#define DICTIONARY_EOF      (-99)
 
 #ifndef _DICT_CRC
 #define _DICT_CRC  32
@@ -238,6 +249,15 @@ class Dictionary {
     void destroy();
     int8_t remove(String keystr);
     size_t size();
+    size_t jsize();
+    String json();
+    int8_t jload (String json, int num=0);
+    int8_t merge (Dictionary& dict);
+    
+    void operator = (Dictionary& dict) {
+        destroy();
+        merge(dict);
+    }
     
     String key(unsigned int i) {
       if (Q) {
@@ -273,7 +293,6 @@ class Dictionary {
       return (!(*this == b));
     }
     inline const size_t count() {
-
       return ( Q ? Q->count() : 0);
     }
 
@@ -323,6 +342,7 @@ void Dictionary::destroy_tree(node* leaf) {
     destroy_tree(leaf->left);
     destroy_tree(leaf->right);
     delete leaf; // node destructor takes care of the key and value strings
+    leaf = NULL;
   }
 }
 
@@ -478,6 +498,7 @@ String Dictionary::search(const char* keystr) {
 
 void Dictionary::destroy() {
   destroy_tree(iRoot);
+  iRoot = NULL;
   delete Q;
   Q = new NodeArray(initSize);
 }
@@ -493,6 +514,120 @@ size_t Dictionary::size() {
   }
   return sz;
 }
+
+
+size_t Dictionary::jsize() {
+  size_t ct = count();
+  // {"key":"value","key":"value"}\0: 
+  // 3 (2 brackets and 1 zero terminator) + 4 quotes, a comma and a semicolon = 6 chars)
+  // minus one last comma
+  size_t sz = 2 + ct * 6; 
+  for (size_t i = 0; i < ct; i++) {
+    sz += key(i).length();
+    sz += value(i).length();
+  }
+  return sz;
+}
+
+
+String Dictionary::json() {
+    String s;
+    
+    s.reserve( jsize() );
+    s = '{';
+    
+    size_t ct = count();
+    for (size_t i = 0; i < ct; i++) {
+        s += '"' + key(i) + "\":\"" + value(i) + '"';
+        if ( i < ct-1 ) s += ',';
+    }
+    s += '}';
+    
+    return s;
+}
+
+
+int8_t Dictionary::merge (Dictionary& dict) {
+    size_t ct = dict.count();
+    int8_t rc;
+    
+    for (size_t i = 0; i < ct; i++) {
+        rc = insert( dict(i), dict[i] );
+        if (rc) return rc;
+    }
+    return DICTIONARY_OK;
+}
+
+
+int8_t Dictionary::jload (String json, int num){
+    bool insideQoute = false;
+    bool nextVerbatim = false;
+    bool isValue = false;
+    const char* c = json.c_str();
+    int len = json.length();
+    int p = 0;
+    String currentKey;
+    String currentValue;
+
+    for (int i = 0; i < len; i++, c++) {
+        if (nextVerbatim) {
+            nextVerbatim = false;
+        }
+        else {
+            // process all special cases: '\', '"', ':', and ','
+            if (*c == '\\') {
+                nextVerbatim = true;
+                continue;
+            }
+            if (*c == '\"') {
+                if (!insideQoute) {
+                    insideQoute = true;
+                    continue;
+                }
+                else {
+                    insideQoute = false;
+                    if (isValue) {
+                        insert(currentKey, currentValue);
+                        currentValue = String();
+                        currentKey = String();
+                        if (num > 0 && p >= num) break;
+                    }
+                }
+            }
+            if (*c == '\n') {
+                if (insideQoute) {
+                    return DICTIONARY_QUOTE;
+                }
+                if (nextVerbatim) {
+                    return DICTIONARY_BCKSL;
+                }
+            }
+            if (!insideQoute) {
+                if (*c == ':') {
+                    if (isValue) {
+                        return DICTIONARY_COMMA; //missing comma probably
+                    }
+                    isValue = true;
+                    continue;
+                }
+                if (*c == ',') {
+                    if (!isValue) {
+                        return DICTIONARY_COLON; //missing colon probably
+                    }
+                    isValue = false;
+                    continue;
+                }
+            }
+        }
+        if (insideQoute) {
+            if (isValue) currentValue.concat(*c);
+            else currentKey.concat(*c);
+        }
+    }
+    if (insideQoute || nextVerbatim || (num > 0 && p < num)) return DICTIONARY_EOF;
+    return DICTIONARY_OK;
+}
+
 
 bool Dictionary::operator == (Dictionary& b) {
   if (b.size() != size()) return false;

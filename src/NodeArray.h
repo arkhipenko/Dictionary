@@ -49,10 +49,18 @@ class node {
     }
 
     static void operator delete(void* p) {
+        
+      if ( p == NULL ) return;
       node* n = (node*)p;
       // Delete key/value strings
-      free(n->keystr);
-      free(n->valstr);
+      if ( n->keystr ) { 
+        free(n->keystr);
+        n->keystr = NULL;
+      }
+      if ( n->valstr ) {
+          free(n->valstr);
+          n->valstr = NULL;
+      }
       // Zero-out the entire memory block
       memset(p, 0, sizeof(node));
       free(p);
@@ -153,7 +161,7 @@ int8_t node::updateValue(const char* aValstr) {
 
   // ok - we have enough space for the new value, lets copy the string there and delete the old one.
 
-  free(valstr);
+  if ( valstr ) free(valstr);
   valstr = temp;
 
   vsize = l;

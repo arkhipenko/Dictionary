@@ -86,7 +86,28 @@ void setup() {
 
   _PP("Reading out of bounds = "); _PL(d[10]);
 
+  Dictionary &a = *(new Dictionary(6)); 
+  Dictionary &b = *(new Dictionary(6));
+
+// Merging one dictionary with another:
+  a("one", "already here");
+  a("ssid", "empty");
+  a.merge(d);
+  _PL(a.json()); // print JSON representation of the result
+
+// Copy dictionary d into dictionary a 
+  a = d;
+  _PL(a.json()); // print JSON representation of the result
+
+// Load dictionary b from the JSON representation of dictionary d
+  b.jload( d.json() );
+  _PL(b.json());
+
+
+  delete (&a);
+  delete (&b);
   delete (&d);
+  
   _PP("Free heap (after delete): "); _PL(ESP.getFreeHeap());
 
 
@@ -104,6 +125,9 @@ void setup() {
     _PP("\t\""); _PP(t(i)); _PP("\" : \""); _PP(t[i]); _PL("\",");
   }
   _PL("}");
+  
+  delete (&t);
+  _PP("Free heap (end of test): "); _PL(ESP.getFreeHeap());
 }
 
 void loop() {
