@@ -57,11 +57,9 @@ dict->insert("buckeroo", "buckeroo");
 
 If a key does not exist, a new key-value pair is created. If a key exists, the value is updated. So
 
-`d("buckeroo", "buckeroonew");`
+`d("buckeroo", "buckeroonew");` will replace the old value of **buckeroo** for the same key with a new value of **buckeroonew**
 
-will replace the old value of **buckeroo** for the same key with a new value of **buckeroonew**
-
-`d.merge(a)` will merge the key-value pairs from dictionary a into dictionary d
+`d.merge(a)` will merge key-value pairs from dictionary a into dictionary d. This could be used as copy operator, just need to make sure that d is empty beforehand. s
 
 `String s = "{\"ssid\":\"devices\",\"pwd\":\"********\"}";`
 
@@ -117,7 +115,7 @@ will replace the old value of **buckeroo** for the same key with a new value of 
 
 `d.json()` returns a String with a JSON representation of the dictionary. 
 
-```
+```c++
 Example:
 
 d.json(): {"ssid":"devices","pwd":"********","url":"http://ota.home.net","port":"80","plumless":"plumless value","buckeroo":"buckeroo value"}
