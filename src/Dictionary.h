@@ -56,11 +56,14 @@
                  Error codes for memory-allocating methods
                  Key and Value max length constants
                  
-  v.2.1.0:
+  v2.1.0:
     2020-05-21 - feature: json output and load from json string
                  feature: merge and '=' operator (proper assignment)
                  bug fix: destroy heap corruption fixed
-
+   
+  v2.1.1:
+    2020-05-22 - bug fix: memory allocation issues during node deletion
+    
 */
 
 
@@ -660,17 +663,18 @@ int8_t Dictionary::remove(String keystr) {
   return DICTIONARY_OK;
 }
 
+
 node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr) {
   if (root == NULL) return root;
 
-  if (key < root->key)
+  if (key < root->key) {
     root->left = deleteNode(root->left, key, keystr);
-
+  }
   // If the key to be deleted is greater than the root's key,
   // then it lies in right subtree
-  else if (key > root->key)
+  else if (key > root->key) {
     root->right = deleteNode(root->right, key, keystr);
-
+  }
   // if key is same as root's key, then This is the node
   // to be deleted
   else {
@@ -687,7 +691,7 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr) {
         delete root;
         root = NULL;
         return temp;
-      }
+      } 
       else if (root->right == NULL) {
 #ifdef _LIBDEBUG_
         Serial.println("Replacing LEFT node");
@@ -701,7 +705,7 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr) {
         return temp;
       }
 
-      // node with two children: Get the inorder successor (smallest
+      // node with two children: Get the in-order successor (smallest
       // in the right subtree)
       node* temp = minValueNode(root->right);
 #ifdef _LIBDEBUG_
@@ -710,14 +714,11 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr) {
       printNode(temp);
 #endif
 
-      // Copy the inorder successor's content to this node
-      root->key = temp->key;
-      root->keystr = temp->keystr;
-      root->valstr = temp->valstr;
-      root->ksize = temp->ksize;
-      root->vsize = temp->vsize;
-
-      // Delete the inorder successor
+      // Copy the in-order successor's content to this node
+      root->updateKey(temp->key, temp->keystr);
+      root->updateValue(temp->valstr); 
+      
+      // Delete the in-order successor
       root->right = deleteNode(root->right, temp->key, temp->keystr);
     }
     else {
@@ -732,8 +733,7 @@ node* Dictionary::minValueNode(node* n) {
   node* current = n;
 
   /* loop down to find the leftmost leaf */
-  while (current && current->left != NULL)
-    current = current->left;
+  while (current && current->left) current = current->left;
 
   return current;
 }
@@ -751,7 +751,7 @@ void Dictionary::printDictionary(node* root) {
 
 void Dictionary::printNode(node* root) {
   if (root != NULL) {
-    Serial.printf("%u: (%u:%s) [l:%u, r:%u]\n", (uint32_t)root, root->key, root->keystr, (uint32_t)root->left, (uint32_t)root->right);
+    Serial.printf("%u: (%u:%s,%s %u:%u) [l:%u, r:%u]\n", (uint32_t)root, root->key, root->keystr, root->valstr, (uint32_t)root->keystr, (uint32_t)root->valstr, (uint32_t)root->left, (uint32_t)root->right);
   }
   else {
     Serial.println("NULL:");

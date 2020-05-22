@@ -114,7 +114,7 @@ void setup() {
   _PL(); _PL("Stress test:");
 
   Dictionary &t = *(new Dictionary(6));
-  for (int i = 0; i < 400; i++)  {
+  for (int i = 0; i < 200; i++)  {
     String k = String("key") + String(i);
     String v = String("This is value number ") + String(i);
     t(k, v);

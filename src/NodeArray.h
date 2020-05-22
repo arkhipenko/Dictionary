@@ -34,24 +34,22 @@
 class node {
   public:
 
-    static void* operator new(size_t size) {
+    void* operator new(size_t size) {
 
 #if defined (ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
       if (psramFound()) {
         void* p = ps_malloc(size);
-        if (p) memset(p, 0, size);
         return p;
       }
 #endif
       void* p = malloc(size);
-      if (p) memset(p, 0, size);
       return p;
     }
 
-    static void operator delete(void* p) {
-        
+    void operator delete(void* p) {
       if ( p == NULL ) return;
       node* n = (node*)p;
+
       // Delete key/value strings
       if ( n->keystr ) { 
         free(n->keystr);
@@ -61,55 +59,61 @@ class node {
           free(n->valstr);
           n->valstr = NULL;
       }
-      // Zero-out the entire memory block
-      memset(p, 0, sizeof(node));
       free(p);
+#ifdef _LIBDEBUG_
+      Serial.printf("NODE-DELETE: Freed memory block %u\n", (uint32_t)p);
+#endif    
     }
 
     int8_t create(uintNN_t aKey, const char* aKeystr, const char* aValstr, node* aLeft, node* aRight);
     int8_t updateValue(const char* aValstr);
+    int8_t updateKey(const uintNN_t aKey, const char* aKeystr);
+
 #ifdef _LIBDEBUG_
     void printNode();
 #endif
-    uintNN_t key;
-    char* keystr;
-    uint16_t ksize;
-    char* valstr;
-    uint16_t vsize;
-    node* left;
-    node* right;
+    uintNN_t    key;
+    char*       keystr;
+    uint16_t    ksize;
+    char*       valstr;
+    uint16_t    vsize;
+    node*       left;
+    node*       right;
 };
 
 
 int8_t node::create(uintNN_t aKey, const char* aKeystr, const char* aValstr, node* aLeft, node* aRight) {
 
-#ifdef _LIBDEBUG_
-  Serial.printf("Node-create: creating new node for key = %d\n", aKey);
-#endif
-
   if ( (ksize = strnlen(aKeystr, _DICT_KEYLEN)) == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
+  ksize++;
   vsize = strnlen(aValstr, _DICT_VALLEN);
+
+//  ksize = ( ksize < 16 ? 16 : ksize );
+//  ksize = ( (ksize - 1) | 3) + 1;
+  
+//  vsize = ( vsize < 16 ? 16 : vsize );
+//  vsize = ( (vsize - 1) | 3) + 1;
 
   // Now we will ry to allocate memory to both char arrays
   keystr = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    keystr = (char*)ps_malloc(ksize + 1);
+    keystr = (char*)ps_malloc(ksize+1);
   }
 #endif
   if (!keystr)
-    keystr = (char*)malloc(ksize + 1);
+    keystr = (char*)malloc(ksize+1);
 
   if (!keystr) return NODEARRAY_MEM;
 
   valstr = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    valstr = (char*)ps_malloc(vsize + 1);
+    valstr = (char*)ps_malloc(vsize+1);
   }
 #endif
   if (!valstr)
-    valstr = (char*)malloc(vsize + 1);
+    valstr = (char*)malloc(vsize+1);
 
   if (!valstr) {
     free(keystr);
@@ -117,19 +121,18 @@ int8_t node::create(uintNN_t aKey, const char* aKeystr, const char* aValstr, nod
   }
 
   // Success - we have space for both strings
-  strncpy(keystr, aKeystr, ksize);
-  keystr[ksize] = 0;
-
-  strncpy(valstr, aValstr, vsize);
-  valstr[vsize] = 0;
+  strcpy(keystr, aKeystr);
+  strcpy(valstr, aValstr);
 
   key = aKey;
   left = aLeft;
   right = aRight;
 
 #ifdef _LIBDEBUG_
+  Serial.print("NODE-CREATE: created a node:\n");
   printNode();
 #endif
+
   return NODEARRAY_OK;
 }
 
@@ -138,11 +141,20 @@ int8_t node::updateValue(const char* aValstr) {
   size_t l = strnlen(aValstr, _DICT_VALLEN);
 
   if (l < vsize) { // new string fits into the old one - will just update
-//    vsize = l;
-    strncpy(valstr, aValstr, l);
-    valstr[l] = 0;
+    strcpy(valstr, aValstr);
+
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEVALUE: updated value for key = %d\n", (uint32_t)keystr);
+    printNode();
+#endif
+
     return NODEARRAY_OK;
   }
+
+//  4 byte alingment 
+//  l++;
+//  l = ( l < 16 ? 16 : l );
+//  l = ( (l - 1) | 3) + 1;
 
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
@@ -154,8 +166,7 @@ int8_t node::updateValue(const char* aValstr) {
     temp = (char*)malloc(l + 1);
 
   if (!temp) { // no memory, will copy as much as we can, and return an error
-    strncpy(valstr, aValstr, vsize);
-    valstr[vsize] = 0;
+    strcpy(valstr, aValstr);
     return NODEARRAY_MEM;
   }
 
@@ -165,19 +176,81 @@ int8_t node::updateValue(const char* aValstr) {
   valstr = temp;
 
   vsize = l;
-  strncpy(valstr, aValstr, vsize);
-  valstr[vsize] = 0;
+  strcpy(valstr, aValstr);
+  
+#ifdef _LIBDEBUG_
+  Serial.printf("NODE-UPDATEVALUE: replaced value for key = %d\n", (uint32_t)keystr);
+  printNode();
+#endif
+
   return NODEARRAY_OK;
 }
+
+
+int8_t node::updateKey(const uintNN_t aKey, const char* aKeystr) {
+  size_t l = strnlen(aKeystr, _DICT_KEYLEN);
+
+    key = aKey;
+  if (l < ksize) { // new string fits into the old one - will just update
+    strcpy(keystr, aKeystr);
+    
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEKEY: updated key = %d\n", (uint32_t)keystr);
+    printNode();
+#endif
+
+    return NODEARRAY_OK;
+  }
+
+//  l++;
+//  l = ( l < 16 ? 16 : l );
+//  l = ( (l - 1) | 3) + 1;
+  
+  char* temp = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    temp = (char*)ps_malloc(l + 1);
+  }
+#endif
+  if (!temp)
+    temp = (char*)malloc(l + 1);
+
+  if (!temp) { // no memory, will copy as much as we can, and return an error
+    strcpy(keystr, aKeystr);
+
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEKEY: NOMEMORY replace key = %d\n", (uint32_t)keystr);
+    printNode();
+#endif
+
+    return NODEARRAY_MEM;
+  }
+
+  // ok - we have enough space for the new value, lets copy the string there and delete the old one.
+
+  if ( keystr ) free(keystr);
+  keystr = temp;
+
+  ksize = l;
+  strcpy(keystr, aKeystr);
+  
+#ifdef _LIBDEBUG_
+  Serial.printf("NODE-UPDATEKEY: replaced key = %d\n", (uint32_t)keystr);
+  printNode();
+#endif
+
+  return NODEARRAY_OK;
+}
+
 
 #ifdef _LIBDEBUG_
 void node::printNode() {
   Serial.println("node:");
   Serial.printf("\tkeyNN   = %u\n", key);
-  Serial.printf("\tkeyStr  = %s (%d)\n", keystr, ksize);
-  Serial.printf("\tValStr  = %s (%d)\n", valstr, vsize);
-  Serial.printf("\tLeft n  = %x\n", (uint32_t)left);
-  Serial.printf("\tRight n = %x\n", (uint32_t)right);
+  Serial.printf("\tkeyStr  = %s (%d) (%u)\n", keystr, ksize, (uint32_t)keystr);
+  Serial.printf("\tValStr  = %s (%d) (%u)\n", valstr, vsize, (uint32_t)valstr);
+  Serial.printf("\tLeft n  = %u\n", (uint32_t)left);
+  Serial.printf("\tRight n = %u\n", (uint32_t)right);
 }
 #endif
 
@@ -246,24 +319,6 @@ NodeArray::NodeArray(unsigned int init_size) {
 
   // Let's not allocate memory in the constructor and delegate it to the
   // resize method, that could return something.
-  /*
-      // allocate enough memory for the array.
-      contents = NULL;
-    #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
-      if (psramFound()) {
-          contents = (node**)ps_malloc(sizeof(node*) * initialSize);
-      }
-    #endif
-      if (!contents)
-          contents = (node**)malloc(sizeof(node*) * initialSize);
-
-      // if there is a memory allocation error.
-      if (contents == NULL) return;
-      //    exit ("QUEUE: insufficient memory to initialize queue.");
-
-      // set the initial size of the queue.
-      size = initialSize;
-  */
 
 }
 
@@ -331,17 +386,18 @@ int8_t NodeArray::append(const node* i) {
   items++;
 
 #ifdef _LIBDEBUG_
-  Serial.printf("NodeArray-append: successfully added a node %x. Cur size: %d\n", (uint32_t) i, items);
+  Serial.printf("NODEARRAY-APPEND: successfully added a node %x. Cur size: %d\n", (uint32_t) i, items);
 #endif
   return NODEARRAY_OK;
 }
+
 
 // remove an item from the queue.
 void NodeArray::remove(const node* i) {
   // check if the queue is empty.
 
 #ifdef _LIBDEBUG_
-  Serial.printf("NodeArray: request remove: %u\n", (uint32_t)i);
+  Serial.printf("NODEARRAY-REMOVE: request remove: %u\n", (uint32_t)i);
 #endif
 
   if (isEmpty()) return;
@@ -360,7 +416,7 @@ void NodeArray::remove(const node* i) {
     if (index < 0) return;  // how?
 
 #ifdef _LIBDEBUG_
-    Serial.printf("NodeArray: found index: %d\n", index);
+    Serial.printf("NODEARRAY-REMOVE: found index: %d\n", index);
 #endif
 
     for (int j = index; j < items - 1; j++) {
@@ -369,6 +425,13 @@ void NodeArray::remove(const node* i) {
   }
   tail--;
   items--;
+#ifdef _LIBDEBUG_
+//    for (int j = 0; j < items; j++) {
+//        Serial.printf("%d : %u\n", j, (uint32_t)contents[j]);
+//    }
+    Serial.printf("NODEARRAY-REMOVE: removal complete\n");
+    Serial.printf("NODEARRAY-REMOVE: current count: %d\n", items);
+#endif
 }
 
 

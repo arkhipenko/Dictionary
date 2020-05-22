@@ -253,19 +253,45 @@ I was able to create ~400 entries and print them in a simple JSON format before 
 
 ### Benchmarking:
 
+Using random key/value pairs (ex: `rose-suggestion : toothbrush health elastic expansion`, around. 50 characters long) generated from a set of 1000 random words
+
 ##### ESP8266 (Wemos R1 running at 160 MHz)
 
-400 random keys (4-15 characters long), 1000 lookups
+300 random key/value pairs, 10000 lookups, times are averaged
 
-- CRC32: ~32.5 microseconds/lookup
-- CRC64: ~68.5 microseconds/lookup
+- CRC16: ~72 microseconds/lookup, ~61 microseconds/delete
+- CRC32: ~59 microseconds/lookup, ~54 microseconds/delete
+- CRC64: ~55 microseconds/lookup, ~90 microseconds/delete
 
 ##### ESP32 (ESP32 WRoom Dev Board  running at 240 MHz)
 
-2000 random keys (4-25 characters long), 20000 lookups
+###### Without using PSRAM:
 
-- CRC32: ~9.1 microseconds/lookup
-- CRC64: ~9.3 microseconds/lookup
+2000 random key/value pairs, 10000 lookups, times are averaged
+
+- CRC16: ~61 microseconds/lookup, ~83 microseconds/delete
+- CRC32: ~43 microseconds/lookup, ~81 microseconds/delete
+- CRC64: ~64 microseconds/lookup, ~59 microseconds/delete
+
+###### Using 4Mb PSRAM:
+
+2000 random key/value pairs, 10000 lookups, times are averaged
+
+- CRC16: ~82 microseconds/lookup, ~107 microseconds/delete
+- CRC32: ~60 microseconds/lookup, ~103 microseconds/delete
+- CRC64: ~60 microseconds/lookup, ~112 microseconds/delete
+
+###### Using 4Mb PSRAM:
+
+20000 random key/value pairs, 20000 lookups, times are averaged
+
+- CRC32: ~83 microseconds/lookup, ~2513 microseconds/delete
+
+30000 random key/value pairs, 30000 lookups, times are averaged
+
+- CRC32: ~77 microseconds/lookup
+
+Further increasing the number of keys: ran out of PSRAM memory at key # 30682.
 
 
 
