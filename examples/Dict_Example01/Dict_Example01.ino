@@ -1,7 +1,19 @@
+/*
+
+  Dictionary Example 01
+  Copyright (c) Anatoli Arkhipenko, 2020
+  All Rights Reserved
+
+  This example tests Dictionary functionality
+  
+  Compile and run on ESP32 boards only
+
+*/
+
 //#define _DICT_CRC_ 16
 //#define _DICT_CRC_ 32
 //#define _DICT_CRC_ 64
-//#define _DICT_USE_PSRAM
+//#define _DICT_USE_PSRAM  // for ESP32 only
 //#define _DICT_KEYLEN 64
 //#define _DICT_VALLEN 256
 
