@@ -64,6 +64,8 @@
   v2.1.1:
     2020-05-22 - bug fix: memory allocation issues during node deletion
     
+  v2.1.2:
+    2020-05-24 - consistent use of size_t type
 */
 
 
@@ -262,14 +264,14 @@ class Dictionary {
         merge(dict);
     }
     
-    String key(unsigned int i) {
+    String key(size_t i) {
       if (Q) {
         node* p = (*Q)[i];
         if (p) return String(p->keystr);
       }
       return String();
     }
-    String value(unsigned int i) {
+    String value(size_t i) {
       if (Q) {
         node* p = (*Q)[i];
         if (p) return String(p->valstr);
@@ -279,7 +281,7 @@ class Dictionary {
     String operator [] (String keystr) {
       return search(keystr);
     }
-    String operator [] (unsigned int i) {
+    String operator [] (size_t i) {
       return value(i);
     }
     int8_t operator () (String keystr, String valstr) {
@@ -288,7 +290,7 @@ class Dictionary {
 
     bool operator () (String keystr);
 
-    String operator () (unsigned int i) {
+    String operator () (size_t i) {
       return key(i);
     }
     bool operator == (Dictionary& b);
@@ -348,6 +350,7 @@ void Dictionary::destroy_tree(node* leaf) {
     leaf = NULL;
   }
 }
+
 
 int8_t Dictionary::insert(uintNN_t key, const char* keystr, const char* valstr, node* leaf) {
   if (key < leaf->key) {
@@ -567,12 +570,12 @@ int8_t Dictionary::jload (String json, int num){
     bool nextVerbatim = false;
     bool isValue = false;
     const char* c = json.c_str();
-    int len = json.length();
+    size_t len = json.length();
     int p = 0;
     String currentKey;
     String currentValue;
 
-    for (int i = 0; i < len; i++, c++) {
+    for (size_t i = 0; i < len; i++, c++) {
         if (nextVerbatim) {
             nextVerbatim = false;
         }

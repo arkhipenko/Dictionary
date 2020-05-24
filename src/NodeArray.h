@@ -258,7 +258,7 @@ void node::printNode() {
 class NodeArray {
   public:
     // init the queue (constructor).
-    NodeArray(unsigned int init_size = 10);
+    NodeArray(size_t init_size = 10);
 
     // clear the queue (destructor).
     ~NodeArray();
@@ -273,13 +273,13 @@ class NodeArray {
     bool isEmpty() const;
 
     //    // get the number of items in the queue.
-    int count() const;
+    size_t count() const;
 
     // check if the queue is full.
     bool isFull() const;
 
 
-    node* operator [] (const unsigned int i) {
+    node* operator [] (const size_t i) {
       if (i >= items) {
         //        exit ("QUEUE: Out of bounds");
         return NULL;
@@ -293,23 +293,23 @@ class NodeArray {
 
   private:
     // resize the size of the queue.
-    int8_t resize(const int s);
+    int8_t resize(const size_t s);
 
     // exit report method in case of error.
     //    void exit (const char * m) const;
 
     // the initial size of the queue.
-    unsigned int initialSize;
+    size_t initialSize;
 
     node** contents;    // the array of the queue.
 
-    int size;        // the size of the queue.
-    int items;       // the number of items of the queue.
-    int tail;        // the tail of the queue.
+    size_t size;        // the size of the queue.
+    size_t items;       // the number of items of the queue.
+    size_t tail;        // the tail of the queue.
 };
 
 // init the queue (constructor).
-NodeArray::NodeArray(unsigned int init_size) {
+NodeArray::NodeArray(size_t init_size) {
   size = 0;       // set the size of queue to zero.
   items = 0;      // set the number of items of queue to zero.
   tail = 0;       // set the tail of the queue to zero.
@@ -334,7 +334,7 @@ NodeArray::~NodeArray() {
 }
 
 // resize the size of the queue.
-int8_t NodeArray::resize(const int s) {
+int8_t NodeArray::resize(const size_t s) {
   // defensive issue.
   if (s <= 0) return NODEARRAY_ERR;
   //    exit ("QUEUE: error due to undesirable size for queue size.");
@@ -354,7 +354,7 @@ int8_t NodeArray::resize(const int s) {
   //    exit ("QUEUE: insufficient memory to initialize temporary queue.");
 
   // copy the items from the old queue to the new one.
-  for (int i = 0; i < items; i++)
+  for (size_t i = 0; i < items; i++)
     temp[i] = contents[i];
 
   // deallocate the old array of the queue.
@@ -404,9 +404,9 @@ void NodeArray::remove(const node* i) {
   //    exit ("QUEUE: can't pop item from queue: queue is empty.");
 
   if (items > 1) {
-    int index = -1;
+    size_t index = -1;
 
-    for (int j = 0; j < items; j++) {
+    for (size_t j = 0; j < items; j++) {
       if (i == contents[j]) {
         index = j;
         break;
@@ -419,14 +419,14 @@ void NodeArray::remove(const node* i) {
     Serial.printf("NODEARRAY-REMOVE: found index: %d\n", index);
 #endif
 
-    for (int j = index; j < items - 1; j++) {
+    for (size_t j = index; j < items - 1; j++) {
       contents[j] = contents[j + 1];
     }
   }
   tail--;
   items--;
 #ifdef _LIBDEBUG_
-//    for (int j = 0; j < items; j++) {
+//    for (size_t j = 0; j < items; j++) {
 //        Serial.printf("%d : %u\n", j, (uint32_t)contents[j]);
 //    }
     Serial.printf("NODEARRAY-REMOVE: removal complete\n");
@@ -438,7 +438,7 @@ void NodeArray::remove(const node* i) {
 #ifdef _LIBDEBUG_
 void NodeArray::printArray() {
   Serial.printf("\nNodeArray::printArray:\n");
-  for (int i = 0; i < items; i++) {
+  for (size_t i = 0; i < items; i++) {
     Serial.printf("%d: %u\n", i, (uint32_t)contents[i]);
   }
   Serial.println();
@@ -456,7 +456,7 @@ bool NodeArray::isFull() const {
 }
 
 // get the number of items in the queue.
-int NodeArray::count() const {
+size_t NodeArray::count() const {
   return items;
 }
 
