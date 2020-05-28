@@ -17,11 +17,9 @@ I needed this to work with JSON files and configuration key-value parameters lik
 ```
 This dictionary only works with `String` objects and character strings (char arrays)
 
-Under the hood is a binary-tree structure based on the CRC32 (CRC16 or CRC64 if you want) hash of the key strings to make lookups fast.  Key collisions are taken care of, so **plumless** and **backeroo** will properly create separate entries... :)
+Under the hood is a binary-tree structure based on the reinterpretation of the first 2 (CRC16), 4 (CRC32) or 8 (CRC64) bytes of the key string (padded with 0's). As of version 3.0.0  I dropped use of actual CRC calculation as an unnecessary overhead in both space and calculation time. 
 
-There is no reason to use CRC64 since key collisions are resolved explicitly. The storage and performance overhead is not worth it. CRC16 produces too much of the collision probability, but maybe more suitable for devices with less memory.
-
-To switch to alternative CRC calculation engine use the following statements:
+To choose how many bytes represent a "key", define one of the following constants: (note, CRC 32 is a default if you do not define anything).
 
 ```c++
 #define _DICT_CRC 16
@@ -29,7 +27,18 @@ To switch to alternative CRC calculation engine use the following statements:
 #define _DICT_CRC 64
 ```
 
- 
+Version 3 also allocates as little memory to each node as possible given specific key and value maximum lengths. For instance a max key length of 64 characters and max value length of 254 characters (which are the defaults) only requires 1 byte for keeping track of the respective lengths. 
+
+You can control the maximum allowable length of both keys and values vis the following parameters:
+
+```c++
+#define _DICT_KEYLEN 64
+#define _DICT_VALLEN 254
+```
+
+**NOTE:** the actual buffer length is one byte longer to accommodate the terminating '\0' for the string. 
+
+
 
 ### Usage:
 
@@ -181,9 +190,14 @@ if ( d("key", "value") ) {
 ### Error Codes:
 
 ```C++
-#define DICTIONARY_OK    0	   // operation successful
-#define DICTIONARY_ERR   (-1)   // genaral error
-#define DICTIONARY_MEM   (-2)   // failed memory allocation
+#define DICTIONARY_OK    	0	   // operation successful
+#define DICTIONARY_ERR   	(-1)   // genaral error
+#define DICTIONARY_MEM   	(-2)   // failed memory allocation
+#define DICTIONARY_COMMA    (-20)  // json conversion error - expected a comma
+#define DICTIONARY_COLON    (-21)  // json conversion error - expected a colon
+#define DICTIONARY_QUOTE    (-22)  // json conversion error - expected a quote
+#define DICTIONARY_BCKSL    (-23)  // json conversion error - expected a back slash
+#define DICTIONARY_EOF      (-99)  // json conversion error - unexpected end of string
 ```
 
 
@@ -224,10 +238,6 @@ will produce this:
 
 - **QueueArray** (modified) - by Efstathios Chatzikyriakidis ([here](https://playground.arduino.cc/Code/QueueArray/))
 - **Binary Trees in C++** - by Alex Allain ([here](https://www.cprogramming.com/tutorial/lesson18.html))
-- **CRC32 code** (modified) - by Björn Samuelsson ([here](http://home.thep.lu.se/~bjorn/crc/))
-- **CRC64 code** (modified) - from Linus Torvalds Linux kernel source tree ([here](https://github.com/torvalds/linux/blob/master/lib/crc64.c))
-- **Probability of CRC collisions** discussion ([here](https://stackoverflow.com/questions/14210298/probability-of-collision-when-using-a-32-bit-hash))
-- **Examples of CRC32 collisions** article ([here](https://preshing.com/20110504/hash-collision-probabilities/))
 - **Deletion of b-tree entries** article ([here](https://www.geeksforgeeks.org/binary-search-tree-set-2-delete/))
 
 That should be everyone. Apologies if I missed anyone - will update as soon as I remember. 
@@ -236,18 +246,13 @@ That should be everyone. Apologies if I missed anyone - will update as soon as I
 
 ### Stress test:
 
-I was able to create ~400 entries and print them in a simple JSON format before starting to run into memory issues. Not a bad result for a small microcontroller:
+On **ESP8266** I was able to create ~400 entries and print them in a simple JSON format before starting to run into memory issues. Not a bad result for a small microcontroller.
 
-```json
-399: free heap = 17104
+On **ESP32** around 2000 key/value pairs fit in the DRAM, and about 30000 in 4Mb of PSRAM. 
 
-{
-	"key0" : "This is value number 0",
-	"key1" : "This is value number 1",
-	"key2" : "This is value number 2",
-	"key3" : "This is value number 3",
-	"key4" : "This is value number 4",
-```
+**NOTE:**  not all DRAM is available to allocation on ESP devices: 
+
+*Due to a technical limitation, the maximum statically allocated DRAM usage is 160KB. The remaining 160KB (for a total of 320KB of DRAM) can only be allocated at runtime as heap.*  Reference is [here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html). 
 
 
 

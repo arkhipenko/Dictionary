@@ -65,34 +65,33 @@ class node {
 #endif    
     }
 
-    int8_t create(uintNN_t aKey, const char* aKeystr, const char* aValstr, node* aLeft, node* aRight);
-    int8_t updateValue(const char* aValstr);
-    int8_t updateKey(const uintNN_t aKey, const char* aKeystr);
+    uintNN_t    key() {
+        uintNN_t* k = (uintNN_t*) keystr;
+        return *k;
+    }
+    
+    int8_t      create(const char* aKeystr, const char* aValstr, node* aLeft, node* aRight);
+    int8_t      updateValue(const char* aValstr);
+    int8_t      updateKey(const char* aKeystr);
 
 #ifdef _LIBDEBUG_
     void printNode();
 #endif
-    uintNN_t    key;
-    char*       keystr;
-    uint16_t    ksize;
-    char*       valstr;
-    uint16_t    vsize;
-    node*       left;
-    node*       right;
+    char*           keystr;
+    _DICT_KEY_TYPE  ksize;
+    char*           valstr;
+    _DICT_VAL_TYPE  vsize;
+    node*           left;
+    node*           right;
 };
 
 
-int8_t node::create(uintNN_t aKey, const char* aKeystr, const char* aValstr, node* aLeft, node* aRight) {
+int8_t node::create(const char* aKeystr, const char* aValstr, node* aLeft, node* aRight) {
 
   if ( (ksize = strnlen(aKeystr, _DICT_KEYLEN)) == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
-  ksize++;
   vsize = strnlen(aValstr, _DICT_VALLEN);
 
-//  ksize = ( ksize < 16 ? 16 : ksize );
-//  ksize = ( (ksize - 1) | 3) + 1;
-  
-//  vsize = ( vsize < 16 ? 16 : vsize );
-//  vsize = ( (vsize - 1) | 3) + 1;
+  ksize = ( ksize < _DICT_LEN ? _DICT_LEN : ksize );
 
   // Now we will ry to allocate memory to both char arrays
   keystr = NULL;
@@ -121,10 +120,10 @@ int8_t node::create(uintNN_t aKey, const char* aKeystr, const char* aValstr, nod
   }
 
   // Success - we have space for both strings
+  memset(keystr, 0, ksize);
   strcpy(keystr, aKeystr);
   strcpy(valstr, aValstr);
 
-  key = aKey;
   left = aLeft;
   right = aRight;
 
@@ -150,11 +149,6 @@ int8_t node::updateValue(const char* aValstr) {
 
     return NODEARRAY_OK;
   }
-
-//  4 byte alingment 
-//  l++;
-//  l = ( l < 16 ? 16 : l );
-//  l = ( (l - 1) | 3) + 1;
 
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
@@ -187,11 +181,11 @@ int8_t node::updateValue(const char* aValstr) {
 }
 
 
-int8_t node::updateKey(const uintNN_t aKey, const char* aKeystr) {
+int8_t node::updateKey(const char* aKeystr) {
   size_t l = strnlen(aKeystr, _DICT_KEYLEN);
 
-    key = aKey;
   if (l < ksize) { // new string fits into the old one - will just update
+    memset(keystr, 0, ksize);
     strcpy(keystr, aKeystr);
     
 #ifdef _LIBDEBUG_
@@ -202,9 +196,7 @@ int8_t node::updateKey(const uintNN_t aKey, const char* aKeystr) {
     return NODEARRAY_OK;
   }
 
-//  l++;
-//  l = ( l < 16 ? 16 : l );
-//  l = ( (l - 1) | 3) + 1;
+  l = ( l < _DICT_LEN ? _DICT_LEN : l );
   
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
@@ -232,6 +224,7 @@ int8_t node::updateKey(const uintNN_t aKey, const char* aKeystr) {
   keystr = temp;
 
   ksize = l;
+  memset(keystr, 0, ksize);
   strcpy(keystr, aKeystr);
   
 #ifdef _LIBDEBUG_
@@ -246,7 +239,7 @@ int8_t node::updateKey(const uintNN_t aKey, const char* aKeystr) {
 #ifdef _LIBDEBUG_
 void node::printNode() {
   Serial.println("node:");
-  Serial.printf("\tkeyNN   = %u\n", key);
+  Serial.printf("\tkeyNN   = %u\n", key());
   Serial.printf("\tkeyStr  = %s (%d) (%u)\n", keystr, ksize, (uint32_t)keystr);
   Serial.printf("\tValStr  = %s (%d) (%u)\n", valstr, vsize, (uint32_t)valstr);
   Serial.printf("\tLeft n  = %u\n", (uint32_t)left);
