@@ -12,7 +12,6 @@ I needed this to work with JSON files and configuration key-value parameters lik
 
 ```
 "ssid" = "your_wifi"
-
 "ota_url" = "http://some.url"
 ```
 This dictionary only works with `String` objects and character strings (char arrays)
@@ -168,13 +167,51 @@ while ( d.count() ) d.remove(d(0));
 
 ### Memory management:
 
-Dictionary allocates all its objects on the Heap. For ESP32 microcontrollers specifically there is an option to use PSRAM if present) as a storage option:
+#### DRAM vs. PSRAM
+
+Dictionary allocates all its objects on the Heap. For ESP32 microcontrollers specifically there is an option to use PSRAM (if present) as a storage:
 
 ```c++
 #define _DICT_USE_PSRAM
 ```
 
 will make Dictionary try to allocate all its objects in the PSRAM.
+
+#### Structure packing
+
+By default ESP microcontrollers allocate memory aligned with 4 byte boundaries for faster memory operations. The overhead could become significant if you create many key-value pairs.  Compiling the library with `#define _DICT_PACK_STRUCTURES` compile option will use packed structures as the very slight performance expense. 
+
+For instance:
+
+Creating and accessing and deleting 1000 key-value pairs on ESP32 running at 240MHz:
+
+```
+Without packing:	memory: 35964 bytes, lookup: ~76 micros/lookup
+With packing:		memory: 34844 bytes, lookup: ~94 micros/lookup
+```
+
+#### Compression
+
+As of version 3.1.0 Dictionary supports small string compression. Two algorithms are supported:
+
+SHOCO (**SHO**rt string **CO**mpression) - based on the compression library [here](https://github.com/Ed-von-Schleck/shoco). And
+
+SMAZ (**SMA**ll **Z**ip) - based on  the compression library [here](https://github.com/antirez/smaz).
+
+While SMAZ's dictionary is static, SHOCO allows creation of custom dictionaries based on the type of strings you plan to use in the dictionary. Dictionary is shipped with a model based on typical configuration files. My benchmarks show that you can achieve 7% to 16% compression ratio depending on the data, but a more thorough analysis is required. 
+
+**NOTE**: when enabled, compression requires additional memory allocation to store compressed and uncompressed keys. The combined memory overhead is (Max Key Length + Max Value Length + 2) bytes, or 64 + 254 + 2 = 320 bytes for default settings. 
+
+The following compile directives will enable SHOCO and SMAZ respectively at the compile time:
+
+```c++
+#define _DICT_COMPRESS_SHOCO
+#define _DICT_COMPRESS_SMAZ
+```
+
+
+
+#### Out of memory Error Handling
 
 All methods that allocate memory are enabled to return error codes in case memory allocation fails.  Typically a success code is '0', so a simple comparison like this would be sufficient:
 
@@ -185,7 +222,7 @@ if ( d("key", "value") ) {
 // memory allocation was successful
 ```
 
-
+The following methods return error codes in case of out-of-memory situation: `insert, remove, jload, merge, operator ()`
 
 ### Error Codes:
 
@@ -193,6 +230,7 @@ if ( d("key", "value") ) {
 #define DICTIONARY_OK    	0	   // operation successful
 #define DICTIONARY_ERR   	(-1)   // genaral error
 #define DICTIONARY_MEM   	(-2)   // failed memory allocation
+#define DICTIONARY_OOB		(-3)   // compressed string does not fit into buffer
 #define DICTIONARY_COMMA    (-20)  // json conversion error - expected a comma
 #define DICTIONARY_COLON    (-21)  // json conversion error - expected a colon
 #define DICTIONARY_QUOTE    (-22)  // json conversion error - expected a quote
@@ -258,45 +296,23 @@ On **ESP32** around 2000 key/value pairs fit in the DRAM, and about 30000 in 4Mb
 
 ### Benchmarking:
 
-Using random key/value pairs (ex: `rose-suggestion : toothbrush health elastic expansion`, around. 50 characters long) generated from a set of 1000 random words
+Using random configuration-*like* key/value pairs (ex: `suggestion : ftp://toothbrush.health.org/elastic`, around. 40 characters long) generated from a set of 1000 random words (timings are in *microseconds*)
 
-##### ESP8266 (Wemos R1 running at 160 MHz)
+```
+Scenario:																		   lookup  delete   size
+=========================================================================================================
+Esp8266, no compression, DRAM, 300 keys, default key length							76.09	83.31	 8364
+Esp8266, shoco compression (default model), DRAM, 300 keys, default key length		108.03	109.22	 7274
+Esp8266, shoco compression (config model), DRAM, 300 keys, default key length		108.18	109.18	 7137
+Esp8266, shoco compression (dedicated model), DRAM, 300 keys, default key length	114.01	115.02	 6960
+Esp8266, smaz compression, DRAM, 300 keys, default key length						128.75	125.76	 7049
 
-300 random key/value pairs, 10000 lookups, times are averaged
-
-- CRC16: ~72 microseconds/lookup, ~61 microseconds/delete
-- CRC32: ~59 microseconds/lookup, ~54 microseconds/delete
-- CRC64: ~55 microseconds/lookup, ~90 microseconds/delete
-
-##### ESP32 (ESP32 WRoom Dev Board  running at 240 MHz)
-
-###### Without using PSRAM:
-
-2000 random key/value pairs, 10000 lookups, times are averaged
-
-- CRC16: ~61 microseconds/lookup, ~83 microseconds/delete
-- CRC32: ~43 microseconds/lookup, ~81 microseconds/delete
-- CRC64: ~64 microseconds/lookup, ~59 microseconds/delete
-
-###### Using 4Mb PSRAM:
-
-2000 random key/value pairs, 10000 lookups, times are averaged
-
-- CRC16: ~82 microseconds/lookup, ~107 microseconds/delete
-- CRC32: ~60 microseconds/lookup, ~103 microseconds/delete
-- CRC64: ~60 microseconds/lookup, ~112 microseconds/delete
-
-###### Using 4Mb PSRAM:
-
-20000 random key/value pairs, 20000 lookups, times are averaged
-
-- CRC32: ~83 microseconds/lookup, ~2513 microseconds/delete
-
-30000 random key/value pairs, 30000 lookups, times are averaged
-
-- CRC32: ~77 microseconds/lookup
-
-Further increasing the number of keys: ran out of PSRAM memory at key # 30682.
+ESP32, no compression, DRAM, 1000 keys, default key length, packed					94.67	17.48	34844
+ESP32, no compression, DRAM, 1000 keys, default key length							76.23	15.49	35964
+ESP32, shoco compression (default model), DRAM, 1000 keys, default key length		73.33	19.59	32216
+ESP32, shoco compression (config model), DRAM, 1000 keys, default key length		73.11	19.26	32084
+ESP32, smaz compression, DRAM, 1000 keys, default key length						73.87	20.84	32140
+```
 
 
 

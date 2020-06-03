@@ -31,19 +31,26 @@
 #define NODEARRAY_ERR   (-1)
 #define NODEARRAY_MEM   (-2)
 
+#ifdef _DICT_PACK_STRUCTURES
+class __attribute((__packed__)) node {
+#else
 class node {
+#endif
   public:
 
     void* operator new(size_t size) {
 
+        void* p = NULL;
 #if defined (ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
       if (psramFound()) {
-        void* p = ps_malloc(size);
-        return p;
+        p = ps_malloc(size);
       }
 #endif
-      void* p = malloc(size);
-      return p;
+      if (!p) p = malloc(size);
+#ifdef _LIBDEBUG_
+      Serial.printf("NODE-NEW: size=%d (%d) k/v sizes=%d, %d, ptr=%u\n", size, sizeof(node), sizeof(_DICT_KEY_TYPE), sizeof(_DICT_VAL_TYPE), (uint32_t)p);
+#endif    
+    return p;
     }
 
     void operator delete(void* p) {
@@ -51,13 +58,13 @@ class node {
       node* n = (node*)p;
 
       // Delete key/value strings
-      if ( n->keystr ) { 
-        free(n->keystr);
-        n->keystr = NULL;
+      if ( n->keybuf ) { 
+        free(n->keybuf);
+        n->keybuf = NULL;
       }
-      if ( n->valstr ) {
-          free(n->valstr);
-          n->valstr = NULL;
+      if ( n->valbuf ) {
+          free(n->valbuf);
+          n->valbuf = NULL;
       }
       free(p);
 #ifdef _LIBDEBUG_
@@ -66,63 +73,66 @@ class node {
     }
 
     uintNN_t    key() {
-        uintNN_t* k = (uintNN_t*) keystr;
-        return *k;
+        uintNN_t k = 0;
+        
+        memcpy((void*)&k, keybuf, ksize < sizeof(uintNN_t) ? ksize : sizeof(uintNN_t));
+        return k;
     }
     
-    int8_t      create(const char* aKeystr, const char* aValstr, node* aLeft, node* aRight);
-    int8_t      updateValue(const char* aValstr);
-    int8_t      updateKey(const char* aKeystr);
+    int8_t      create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight);
+    int8_t      updateValue(const char* aVal, _DICT_VAL_TYPE aValSize);
+    int8_t      updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize);
 
 #ifdef _LIBDEBUG_
     void printNode();
 #endif
-    char*           keystr;
+    char*           keybuf;
     _DICT_KEY_TYPE  ksize;
-    char*           valstr;
+    char*           valbuf;
     _DICT_VAL_TYPE  vsize;
     node*           left;
     node*           right;
 };
 
 
-int8_t node::create(const char* aKeystr, const char* aValstr, node* aLeft, node* aRight) {
+int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight) {
 
-  if ( (ksize = strnlen(aKeystr, _DICT_KEYLEN)) == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
-  vsize = strnlen(aValstr, _DICT_VALLEN);
+  if ( aKeySize == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
+  vsize = aValSize;
 
-  ksize = ( ksize < _DICT_LEN ? _DICT_LEN : ksize );
+//  ksize = ( aKeySize < _DICT_LEN ? _DICT_LEN : aKeySize );
 
-  // Now we will ry to allocate memory to both char arrays
-  keystr = NULL;
+  ksize = aKeySize;
+  // Now we will try to allocate memory to both char arrays
+  keybuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    keystr = (char*)ps_malloc(ksize+1);
+    keybuf = (char*)ps_malloc(ksize + _DICT_EXTRA);
   }
 #endif
-  if (!keystr)
-    keystr = (char*)malloc(ksize+1);
+  if (!keybuf)
+    keybuf = (char*)malloc(ksize + _DICT_EXTRA);
 
-  if (!keystr) return NODEARRAY_MEM;
+  if (!keybuf) return NODEARRAY_MEM;
 
-  valstr = NULL;
+  valbuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    valstr = (char*)ps_malloc(vsize+1);
+    valbuf = (char*)ps_malloc(vsize + _DICT_EXTRA);
   }
 #endif
-  if (!valstr)
-    valstr = (char*)malloc(vsize+1);
+  if (!valbuf)
+    valbuf = (char*)malloc(vsize + _DICT_EXTRA);
 
-  if (!valstr) {
-    free(keystr);
+  if (!valbuf) {
+    free(keybuf);
     return NODEARRAY_MEM;
   }
 
   // Success - we have space for both strings
-  memset(keystr, 0, ksize);
-  strcpy(keystr, aKeystr);
-  strcpy(valstr, aValstr);
+  memset(keybuf, 0, ksize);
+  memcpy(keybuf, aKey, aKeySize);
+  memcpy(valbuf, aVal, aValSize);
 
   left = aLeft;
   right = aRight;
@@ -136,14 +146,15 @@ int8_t node::create(const char* aKeystr, const char* aValstr, node* aLeft, node*
 }
 
 
-int8_t node::updateValue(const char* aValstr) {
-  size_t l = strnlen(aValstr, _DICT_VALLEN);
-
-  if (l < vsize) { // new string fits into the old one - will just update
-    strcpy(valstr, aValstr);
+int8_t node::updateValue(const char* aVal, _DICT_VAL_TYPE aValSize) {
+  if ( aValSize > _DICT_VALLEN ) return NODEARRAY_ERR;
+  
+  if (aValSize <= vsize) { // new string fits into the old one - will just update
+    memcpy(valbuf, aVal, aValSize);
+    vsize = aValSize;
 
 #ifdef _LIBDEBUG_
-    Serial.printf("NODE-UPDATEVALUE: updated value for key = %d\n", (uint32_t)keystr);
+    Serial.printf("NODE-UPDATEVALUE: updated value for key = %d\n", (uint32_t)keybuf);
     printNode();
 #endif
 
@@ -153,27 +164,26 @@ int8_t node::updateValue(const char* aValstr) {
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    temp = (char*)ps_malloc(l + 1);
+    temp = (char*)ps_malloc(aValSize + _DICT_EXTRA);
   }
 #endif
   if (!temp)
-    temp = (char*)malloc(l + 1);
+    temp = (char*)malloc(aValSize + _DICT_EXTRA);
 
-  if (!temp) { // no memory, will copy as much as we can, and return an error
-    strcpy(valstr, aValstr);
+  if (!temp) { // no memory
     return NODEARRAY_MEM;
   }
 
   // ok - we have enough space for the new value, lets copy the string there and delete the old one.
 
-  if ( valstr ) free(valstr);
-  valstr = temp;
+  if ( valbuf ) free(valbuf);
+  valbuf = temp;
 
-  vsize = l;
-  strcpy(valstr, aValstr);
+  vsize = aValSize;
+  memcpy(valbuf, aVal, vsize);
   
 #ifdef _LIBDEBUG_
-  Serial.printf("NODE-UPDATEVALUE: replaced value for key = %d\n", (uint32_t)keystr);
+  Serial.printf("NODE-UPDATEVALUE: replaced value for key = %d\n", (uint32_t)key());
   printNode();
 #endif
 
@@ -181,37 +191,36 @@ int8_t node::updateValue(const char* aValstr) {
 }
 
 
-int8_t node::updateKey(const char* aKeystr) {
-  size_t l = strnlen(aKeystr, _DICT_KEYLEN);
+int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
+  if (aKeySize > _DICT_KEYLEN) return NODEARRAY_ERR;;
 
-  if (l < ksize) { // new string fits into the old one - will just update
-    memset(keystr, 0, ksize);
-    strcpy(keystr, aKeystr);
+//  _DICT_KEY_TYPE ks = aKeySize < _DICT_LEN ? _DICT_LEN : aKeySize;
+
+  if (aKeySize < ksize) { // new string fits into the old one - will just update
+    memcpy(keybuf, aKey, aKeySize);
+    ksize = aKeySize;
     
 #ifdef _LIBDEBUG_
-    Serial.printf("NODE-UPDATEKEY: updated key = %d\n", (uint32_t)keystr);
+    Serial.printf("NODE-UPDATEKEY: updated key = %d\n", (uint32_t)keybuf);
     printNode();
 #endif
 
     return NODEARRAY_OK;
   }
-
-  l = ( l < _DICT_LEN ? _DICT_LEN : l );
   
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    temp = (char*)ps_malloc(l + 1);
+    temp = (char*)ps_malloc(aKeySize + _DICT_EXTRA);
   }
 #endif
   if (!temp)
-    temp = (char*)malloc(l + 1);
+    temp = (char*)malloc(aKeySize + _DICT_EXTRA);
 
   if (!temp) { // no memory, will copy as much as we can, and return an error
-    strcpy(keystr, aKeystr);
 
 #ifdef _LIBDEBUG_
-    Serial.printf("NODE-UPDATEKEY: NOMEMORY replace key = %d\n", (uint32_t)keystr);
+    Serial.printf("NODE-UPDATEKEY: NOMEMORY replace keybuf = %d\n", (uint32_t)keybuf);
     printNode();
 #endif
 
@@ -220,15 +229,14 @@ int8_t node::updateKey(const char* aKeystr) {
 
   // ok - we have enough space for the new value, lets copy the string there and delete the old one.
 
-  if ( keystr ) free(keystr);
-  keystr = temp;
+  if ( keybuf ) free(keybuf);
+  keybuf = temp;
 
-  ksize = l;
-  memset(keystr, 0, ksize);
-  strcpy(keystr, aKeystr);
+  ksize = aKeySize;
+  memcpy(keybuf, aKey, ksize);
   
 #ifdef _LIBDEBUG_
-  Serial.printf("NODE-UPDATEKEY: replaced key = %d\n", (uint32_t)keystr);
+  Serial.printf("NODE-UPDATEKEY: replaced keybuf = %d\n", (uint32_t)keybuf);
   printNode();
 #endif
 
@@ -240,15 +248,22 @@ int8_t node::updateKey(const char* aKeystr) {
 void node::printNode() {
   Serial.println("node:");
   Serial.printf("\tkeyNN   = %u\n", key());
-  Serial.printf("\tkeyStr  = %s (%d) (%u)\n", keystr, ksize, (uint32_t)keystr);
-  Serial.printf("\tValStr  = %s (%d) (%u)\n", valstr, vsize, (uint32_t)valstr);
+  Serial.printf("\tkey  = ");
+  for (int i=0; i<ksize; i++) Serial.printf("%02x", keybuf[i]); 
+  Serial.printf(" (%d) (%u)\n", ksize, (uint32_t)keybuf);
+  Serial.printf("\tval  = ");
+  for (int i=0; i<vsize; i++) Serial.printf("%02x", valbuf[i]); 
+  Serial.printf(" (%d) (%u)\n", vsize, (uint32_t)valbuf);
   Serial.printf("\tLeft n  = %u\n", (uint32_t)left);
   Serial.printf("\tRight n = %u\n", (uint32_t)right);
 }
 #endif
 
-
+#ifdef _DICT_PACK_STRUCTURES
+class __attribute((__packed__)) NodeArray {
+#else
 class NodeArray {
+#endif   
   public:
     // init the queue (constructor).
     NodeArray(size_t init_size = 10);

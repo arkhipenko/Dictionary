@@ -15,7 +15,12 @@
 //#define _DICT_CRC 16
 #define _DICT_CRC 32
 //#define _DICT_CRC 64
+
+#define _DICT_PACK_STRUCTURES
+//#define _DICT_COMPRESS_SHOCO
+//#define _DICT_COMPRESS_SMAZ
 #define _DICT_USE_PSRAM
+
 //#define _DICT_KEYLEN 64
 //#define _DICT_VALLEN 256
 
