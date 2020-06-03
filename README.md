@@ -299,19 +299,19 @@ On **ESP32** around 2000 key/value pairs fit in the DRAM, and about 30000 in 4Mb
 Using random configuration-*like* key/value pairs (ex: `suggestion : ftp://toothbrush.health.org/elastic`, around. 40 characters long) generated from a set of 1000 random words (timings are in *microseconds*)
 
 ```
-Scenario:																		   lookup  delete   size
+Scenario:									        lookup  delete   size
 =========================================================================================================
-Esp8266, no compression, DRAM, 300 keys, default key length							76.09	83.31	 8364
+Esp8266, no compression, DRAM, 300 keys, default key length				76.09	83.31	 8364
 Esp8266, shoco compression (default model), DRAM, 300 keys, default key length		108.03	109.22	 7274
 Esp8266, shoco compression (config model), DRAM, 300 keys, default key length		108.18	109.18	 7137
 Esp8266, shoco compression (dedicated model), DRAM, 300 keys, default key length	114.01	115.02	 6960
-Esp8266, smaz compression, DRAM, 300 keys, default key length						128.75	125.76	 7049
+Esp8266, smaz compression, DRAM, 300 keys, default key length				128.75	125.76	 7049
 
-ESP32, no compression, DRAM, 1000 keys, default key length, packed					94.67	17.48	34844
-ESP32, no compression, DRAM, 1000 keys, default key length							76.23	15.49	35964
+ESP32, no compression, DRAM, 1000 keys, default key length, packed			94.67	17.48	34844
+ESP32, no compression, DRAM, 1000 keys, default key length				76.23	15.49	35964
 ESP32, shoco compression (default model), DRAM, 1000 keys, default key length		73.33	19.59	32216
 ESP32, shoco compression (config model), DRAM, 1000 keys, default key length		73.11	19.26	32084
-ESP32, smaz compression, DRAM, 1000 keys, default key length						73.87	20.84	32140
+ESP32, smaz compression, DRAM, 1000 keys, default key length				73.87	20.84	32140
 ```
 
 
