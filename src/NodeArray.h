@@ -412,16 +412,18 @@ void NodeArray::remove(const node* i) {
   //    exit ("QUEUE: can't pop item from queue: queue is empty.");
 
   if (items > 1) {
-    size_t index = -1;
+    int8_t found = 0;
+    size_t index = 0;
 
     for (size_t j = 0; j < items; j++) {
       if (i == contents[j]) {
         index = j;
+        found = 1;
         break;
       }
     }
 
-    if (index < 0) return;  // how?
+    if ( !found ) return;  // how?
 
 #ifdef _LIBDEBUG_
     Serial.printf("NODEARRAY-REMOVE: found index: %d\n", index);

@@ -72,6 +72,9 @@
 
   v3.1.0:
     2020-06-03 - support for key and value compression (SHOCO and SMAZ). Optimizations.
+    
+  v3.1.1:
+    2020-08-05 - clean-up to suppress compiler warnings
  */
 
 
@@ -226,7 +229,7 @@ class Dictionary {
     String operator () (size_t i) { return key(i); }
     inline bool operator == (Dictionary& b);
     inline bool operator != (Dictionary& b) { return (!(*this == b)); }
-    inline const size_t count() { return ( Q ? Q->count() : 0); }
+    inline size_t count() { return ( Q ? Q->count() : 0); }
 
 #ifdef _LIBDEBUG_
     void printNode(node* root);
@@ -312,14 +315,16 @@ int8_t Dictionary::insert(String keystr, String valstr) {
 int8_t Dictionary::insert(const char* keystr, const char* valstr) {
   // TODO: decide if to check for length here
   iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
+#ifdef _DICT_COMPRESS
   int8_t rc;
+#endif
 
   if ( iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
   if ( (iValLen = strnlen(valstr, _DICT_VALLEN + 1)) > _DICT_VALLEN ) return DICTIONARY_ERR;
 
 #ifdef _DICT_COMPRESS
-  if (rc = compressKey(keystr)) return rc;
-  if (rc = compressValue(valstr)) return rc;
+  if ( (rc = compressKey(keystr)) ) return rc;
+  if ( (rc = compressValue(valstr)) ) return rc;
 #else
   iKeyTemp = (char*) keystr;
   iValTemp = (char*) valstr;
@@ -361,11 +366,13 @@ String Dictionary::search(String keystr) {
 
 String Dictionary::search(const char* keystr) {
     iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
+#ifdef _DICT_COMPRESS
     int8_t rc;
+#endif
 
     if (iKeyLen <= _DICT_KEYLEN) {
 #ifdef _DICT_COMPRESS
-        if ( rc = compressKey(keystr)) return String("");
+        if ( (rc = compressKey(keystr)) ) return String("");
 #else
         iKeyTemp = (char*) keystr;
 #endif
@@ -439,12 +446,14 @@ int8_t Dictionary::remove(const char* keystr) {
 #ifdef _LIBDEBUG_
     Serial.printf("Dictionary::remove: %s\n", keystr);
 #endif
+#ifdef _DICT_COMPRESS
     int8_t rc;
+#endif
     iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
     if (iKeyLen > _DICT_KEYLEN) return DICTIONARY_ERR;
 
 #ifdef _DICT_COMPRESS
-    if (rc = compressKey(keystr)) return rc;
+    if ( (rc = compressKey(keystr)) ) return rc;
 #else
     iKeyTemp = (char*) keystr;
 #endif
@@ -606,12 +615,12 @@ int8_t Dictionary::merge(Dictionary& dict) {
 // ==== OPERATORS ====================================
 
 bool Dictionary::operator () (String keystr) {
-    int8_t rc;
     iKeyLen = keystr.length();
     if (iKeyLen > _DICT_KEYLEN) return false;
 
 #ifdef _DICT_COMPRESS
-    if (rc = compressKey(keystr.c_str())) return false;
+    int8_t rc;
+    if ( (rc = compressKey(keystr.c_str())) ) return false;
 #else
     iKeyTemp = (char*) keystr.c_str();
 #endif
