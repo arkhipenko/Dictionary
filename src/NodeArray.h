@@ -27,6 +27,8 @@
 #ifndef _NODEARRAY_H
 #define _NODEARRAY_H
 
+namespace NodeArray {
+
 #define NODEARRAY_OK    0
 #define NODEARRAY_ERR   (-1)
 #define NODEARRAY_MEM   (-2)
@@ -469,6 +471,6 @@ bool NodeArray::isFull() const {
 size_t NodeArray::count() const {
   return items;
 }
-
+} // namespace NodeArray
 #endif // _NODEARRAY_H
 

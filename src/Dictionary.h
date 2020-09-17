@@ -75,12 +75,14 @@
     
   v3.1.1:
     2020-08-05 - clean-up to suppress compiler warnings
+    
+  v3.1.2:
+    2020-09-16 - use of namespace for NodeArray
  */
 
 
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
-
 
 #ifndef _DICT_KEYLEN
 #define _DICT_KEYLEN 64
@@ -182,7 +184,7 @@ extern "C" {
 
 #include <Arduino.h>
 #include "NodeArray.h"
-
+using namespace NodeArray;
 
 #ifdef _DICT_PACK_STRUCTURES
 class __attribute((__packed__)) Dictionary {
@@ -264,7 +266,7 @@ class Dictionary {
 
 // data
     node*               iRoot;
-    NodeArray*          Q;
+    NodeArray::NodeArray* Q;
     size_t              initSize;
 
     char*            iKeyTemp;
@@ -281,7 +283,7 @@ Dictionary::Dictionary(size_t init_size) {
 
   // This is unlikely to fail as practically no memory is allocated by the NodeArray
   // All memory allocation is delegated to the first append
-  Q = new NodeArray(init_size);
+  Q = new NodeArray::NodeArray(init_size);
   initSize = init_size;
 
 #ifdef _DICT_COMPRESS
@@ -435,7 +437,7 @@ void Dictionary::destroy() {
     destroy_tree(iRoot);
     iRoot = NULL;
     delete Q;
-    Q = new NodeArray(initSize);
+    Q = new NodeArray::NodeArray(initSize);
 }
 
 int8_t Dictionary::remove(String keystr) {
