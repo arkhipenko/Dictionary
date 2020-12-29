@@ -195,16 +195,16 @@ class Dictionary {
     Dictionary(size_t init_size = 10);
     ~Dictionary();
 
-    inline int8_t       insert(String keystr, String valstr);
+    inline int8_t       insert(const String& keystr, const String& valstr);
     int8_t              insert(const char* keystr, const char* valstr);
     
-    inline String       search(String keystr);
+    inline String       search(const String& keystr);
     String              search(const char* keystr);
     String              key(size_t i);
     String              value(size_t i);
 
     void                destroy();
-    inline int8_t       remove(String keystr);
+    inline int8_t       remove(const String& keystr);
     int8_t              remove(const char* keystr);
 
     size_t              size();
@@ -212,7 +212,8 @@ class Dictionary {
     size_t              esize();
     
     String              json();
-    int8_t              jload (String json, int num = 0);
+    inline int8_t       jload (const String& json, int num = 0);
+    int8_t              jload (const char* json, int num = 0);
     int8_t              merge (Dictionary& dict);
 
 
@@ -221,12 +222,12 @@ class Dictionary {
       merge(dict);
     }
 
-    inline String operator [] (String keystr) { return search(keystr); }
+    inline String operator [] (const String& keystr) { return search(keystr); }
     inline String operator [] (size_t i) { return value(i); }
-    inline int8_t operator () (String keystr, String valstr) { return insert(keystr, valstr); }
+    inline int8_t operator () (const String& keystr, const String& valstr) { return insert(keystr, valstr); }
     inline int8_t operator () (const char* keystr, const char* valstr) { return insert(keystr, valstr); }
 
-    bool operator () (String keystr);
+    bool operator () (const String& keystr);
 
     String operator () (size_t i) { return key(i); }
     inline bool operator == (Dictionary& b);
@@ -310,7 +311,7 @@ Dictionary::~Dictionary() {
 // ==== PUBLIC METHODS ===============================================
 
 // ===== INSERTS =====================================================
-int8_t Dictionary::insert(String keystr, String valstr) {
+int8_t Dictionary::insert(const String& keystr, const String& valstr) {
   return insert(keystr.c_str(), valstr.c_str());
 }
 
@@ -362,7 +363,7 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
 
 
 // ==== SEARCHES AND LOOKUPS ===============================================
-String Dictionary::search(String keystr) {
+String Dictionary::search(const String& keystr) {
     return search(keystr.c_str());
 }
 
@@ -440,7 +441,7 @@ void Dictionary::destroy() {
     Q = new NodeArray::NodeArray(initSize);
 }
 
-int8_t Dictionary::remove(String keystr) {
+int8_t Dictionary::remove(const String& keystr) {
     return remove(keystr.c_str());
 }
 
@@ -517,10 +518,10 @@ size_t Dictionary::esize() {
 
 // ==== JSON RELATED ================================================
 String Dictionary::json() {
-    String s;
+    String s((char *)0);    // do not pre-allocate anything, reserve() will follow
 
     s.reserve(jsize());
-    s = '{';
+    s += '{';
 
     size_t ct = count();
     for (size_t i = 0; i < ct; i++) {
@@ -532,13 +533,16 @@ String Dictionary::json() {
     return s;
 }
 
+int8_t Dictionary::jload(const String& json, int num) {
+    return jload(json.c_str(), num);
+}
 
-int8_t Dictionary::jload(String json, int num) {
+int8_t Dictionary::jload(const char* c, int num) {
     bool insideQoute = false;
     bool nextVerbatim = false;
     bool isValue = false;
-    const char* c = json.c_str();
-    size_t len = json.length();
+    //const char* c = json.c_str();
+    size_t len = strlen(c);
     int p = 0;
     String currentKey;
     String currentValue;
@@ -616,7 +620,7 @@ int8_t Dictionary::merge(Dictionary& dict) {
 
 // ==== OPERATORS ====================================
 
-bool Dictionary::operator () (String keystr) {
+bool Dictionary::operator () (const String& keystr) {
     iKeyLen = keystr.length();
     if (iKeyLen > _DICT_KEYLEN) return false;
 
