@@ -83,6 +83,10 @@
     2020-12-21 - support for comments (#) in imported JSON files
                  bug fix: heap corrupt when missing a comma
                  feature: stricter JSON formatting check
+                 
+  v3.2.1:
+    2021-01-04 - bug fix: import of files with windows-style CR/LF
+    
  */
 
 
@@ -621,7 +625,7 @@ int8_t Dictionary::jload(String json, int aNum) {
               isValue = false;
               continue;
             }
-            if ( c == '{' || c == '}' || c == ' ' || c == '\t' ) continue;
+            if ( c == '{' || c == '}' || c == ' ' || c == '\t' || c == '\r' ) continue;
             return DICTIONARY_FMT;
           }
         }
