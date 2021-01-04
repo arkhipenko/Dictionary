@@ -78,6 +78,7 @@
 #define DICTIONARY_COLON    (-21)
 #define DICTIONARY_QUOTE    (-22)
 #define DICTIONARY_BCKSL    (-23)
+#define DICTIONARY_FMT      (-25)
 #define DICTIONARY_EOF      (-99)
 
 

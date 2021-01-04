@@ -71,9 +71,22 @@ If a key does not exist, a new key-value pair is created. If a key exists, the v
 
 `String s = "{\"ssid\":\"devices\",\"pwd\":\"********\"}";`
 
-`d.jload(s)` will populate dictionary d from the JSON string s
+`d.jload(s)` will populate dictionary `d` from the JSON string `s`. 
 
+`d.jload(s, 2)` will load only first 2 key/value pairs.
 
+NOTE: as of version 3.2.0 JSON strings can contain comments (lines starting with a `#` symbol). 
+
+E.g. :
+
+```json
+# This JSON file contains comments
+{
+    "key" : "value", # line comments are supported as well
+}
+```
+
+ 
 
 #### Lookup values:
 

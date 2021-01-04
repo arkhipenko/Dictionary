@@ -78,6 +78,11 @@
     
   v3.1.2:
     2020-09-16 - use of namespace for NodeArray
+    
+  v3.2.0:
+    2020-12-21 - support for comments (#) in imported JSON files
+                 bug fix: heap corrupt when missing a comma
+                 feature: stricter JSON formatting check
  */
 
 #ifndef _DICTIONARY_H_
@@ -325,7 +330,9 @@ String Dictionary::json() {
 
     size_t ct = count();
     for (size_t i = 0; i < ct; i++) {
-        s += '"' + key(i) + "\":\"" + value(i) + '"';
+        String vv = value(i);
+        vv.replace("\"","\\\"");
+        s += '"' + key(i) + "\":\"" + vv + '"';
         if (i < ct - 1) s += ',';
     }
     s += '}';
@@ -337,74 +344,101 @@ int8_t Dictionary::jload(const String& json, int num) {
     return jload(json.c_str(), num);
 }
 
-int8_t Dictionary::jload(const char* c, int num) {
+int8_t Dictionary::jload(const char* jc, int aNum) {
     bool insideQoute = false;
     bool nextVerbatim = false;
     bool isValue = false;
-    //const char* c = json.c_str();
-    size_t len = strlen(c);
+    size_t len = strlen(jc);
+    bool isComment = false;
     int p = 0;
+    int8_t rc;
     String currentKey;
     String currentValue;
 
-    for (size_t i = 0; i < len; i++, c++) {
+    for (size_t i = 0; i < len; i++, jc++) {
+        char c = *jc;
+        
+        if ( isComment ) {
+          if ( c == '\n' ) {
+            isComment = false;
+            isValue = false;
+          }
+          continue;
+        }
         if (nextVerbatim) {
-            nextVerbatim = false;
+          nextVerbatim = false;
         }
         else {
-            // process all special cases: '\', '"', ':', and ','
-            if (*c == '\\') {
-                nextVerbatim = true;
-                continue;
+          // process all special cases: '\', '"', ':', and ','
+          if (c == '\\' ) {
+            nextVerbatim = true;
+            continue;
+          }
+          if ( c == '#' ) {
+            if ( !insideQoute ) {
+              isComment = true;
+              continue;
             }
-            if (*c == '\"') {
-                if (!insideQoute) {
-                    insideQoute = true;
-                    continue;
-                }
-                else {
-                    insideQoute = false;
-                    if (isValue) {
-                        insert(currentKey, currentValue);
-                        currentValue = String();
-                        currentKey = String();
-                        if (num > 0 && p >= num) break;
-                    }
-                }
-            }
-            if (*c == '\n') {
-                if (insideQoute) {
-                    return DICTIONARY_QUOTE;
-                }
-                if (nextVerbatim) {
-                    return DICTIONARY_BCKSL;
-                }
-            }
+          }
+          if ( c == '\"' ) {
             if (!insideQoute) {
-                if (*c == ':') {
-                    if (isValue) {
-                        return DICTIONARY_COMMA; //missing comma probably
-                    }
-                    isValue = true;
-                    continue;
-                }
-                if (*c == ',') {
-                    if (!isValue) {
-                        return DICTIONARY_COLON; //missing colon probably
-                    }
-                    isValue = false;
-                    continue;
-                }
+              insideQoute = true;
+              continue;
             }
+            else {
+              insideQoute = false;
+              if (isValue) {
+                rc = insert( currentKey, currentValue );
+                if (rc) return DICTIONARY_MEM;  // if error - exit with an error code
+                currentValue = String();
+                currentKey = String();
+                p++;
+                if (aNum > 0 && p >= aNum) break;
+              }
+              continue;
+            }
+          }
+          if (c == '\n') {
+            if ( insideQoute ) {
+              return DICTIONARY_QUOTE;
+            }
+            if ( nextVerbatim ) {
+              return DICTIONARY_BCKSL;
+            }
+            isValue = false;  // missing comma, but let's forgive that
+            continue;
+          }
+          if (!insideQoute) {
+            if (c == ':') {
+              if ( isValue ) {
+                return DICTIONARY_COMMA; //missing comma probably
+              }
+              isValue = true;
+              continue;
+            }
+            if (c == ',') {
+              if ( !isValue ) {
+                return DICTIONARY_COLON; //missing colon probably
+              }
+              isValue = false;
+              continue;
+            }
+            if ( c == '{' || c == '}' || c == ' ' || c == '\t' ) continue;
+            return DICTIONARY_FMT;
+          }
         }
         if (insideQoute) {
-            if (isValue) currentValue.concat(*c);
-            else currentKey.concat(*c);
+          if (isValue) currentValue.concat(c);
+          else currentKey.concat(c);
         }
-    }
-    if (insideQoute || nextVerbatim || (num > 0 && p < num)) return DICTIONARY_EOF;
-    return DICTIONARY_OK;
+      }
+      if (insideQoute || nextVerbatim || (aNum > 0 && p < aNum )) return DICTIONARY_EOF;
+    #ifdef _LIBDEBUG_
+        Serial.printf("Dictionary::jload: DICTIONARY_OK\n");
+    #endif
+      return DICTIONARY_OK;
 }
+
 
 int8_t Dictionary::merge(Dictionary& dict) {
     size_t ct = dict.count();
@@ -416,7 +450,6 @@ int8_t Dictionary::merge(Dictionary& dict) {
     }
     return DICTIONARY_OK;
 }
-
 
 // ==== OPERATORS ====================================
 
