@@ -89,15 +89,11 @@
 #define _DICTIONARY_H_
 
 #include "DictionaryDeclarations.h"
-#include "NodeArray.h"
 
 // ==== CONSTRUCTOR / DESTRUCTOR ==================================
 Dictionary::Dictionary(size_t init_size) {
-  iRoot = NULL;
 
-  // This is unlikely to fail as practically no memory is allocated by the NodeArray
-  // All memory allocation is delegated to the first append
-  Q = new NodeArray(init_size);
+  dict.reserve(init_size);
   initSize = init_size;
 
 #ifdef _DICT_COMPRESS
@@ -112,7 +108,6 @@ Dictionary::Dictionary(size_t init_size) {
 
 Dictionary::~Dictionary() {
   destroy();
-  delete Q;
 #ifdef _DICT_COMPRESS
   free(iKeyTemp); iKeyTemp = NULL;
   free(iValTemp); iValTemp = NULL;
@@ -127,14 +122,12 @@ Dictionary::~Dictionary() {
 int8_t Dictionary::insert(const char* keystr, const char* valstr) {
   // TODO: decide if to check for length here
   iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
-#ifdef _DICT_COMPRESS
-  int8_t rc;
-#endif
 
   if ( iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
   if ( (iValLen = strnlen(valstr, _DICT_VALLEN + 1)) > _DICT_VALLEN ) return DICTIONARY_ERR;
 
 #ifdef _DICT_COMPRESS
+  int8_t rc;
   if ( (rc = compressKey(keystr)) ) return rc;
   if ( (rc = compressValue(valstr)) ) return rc;
 #else
@@ -142,34 +135,60 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
   iValTemp = (char*) valstr;
 #endif
 
-  uintNN_t key = crc(iKeyTemp, iKeyLen);
+  //uintNN_t key = crc(iKeyTemp, iKeyLen);
 
-  if (iRoot != NULL)
-    return insert(key, iKeyTemp, iKeyLen, iValTemp, iValLen, iRoot);
-  else {
-    int8_t rc;
-
-    iRoot = new node;
-    if (!iRoot) return DICTIONARY_MEM;
-    rc = iRoot->create(iKeyTemp, iKeyLen, iValTemp, iValLen, NULL, NULL);
-
-#ifdef _LIBDEBUG_
-    Serial.printf("DICT-insert: creating root entry. rc = %d\n", rc);
-#endif
-
-    if (rc) {
-      delete iRoot;
-      return rc;
-    }
-    rc = Q->append(iRoot);
-    if (rc) {
-      delete iRoot;
-      return rc;
-    }
-  }
-  return DICTIONARY_OK;
+  set(iKeyTemp, iValTemp);
+  return (DICTIONARY_OK);
 }
 
+int8_t Dictionary::update(const char* keystr, const char* valstr) {
+  // TODO: decide if to check for length here
+  iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
+
+  if ( iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
+  if ( (iValLen = strnlen(valstr, _DICT_VALLEN + 1)) > _DICT_VALLEN ) return DICTIONARY_ERR;
+
+#ifdef _DICT_COMPRESS
+  int8_t rc;
+  if ( (rc = compressKey(keystr)) ) return rc;
+  if ( (rc = compressValue(valstr)) ) return rc;
+#else
+  iKeyTemp = (char*) keystr;
+  iValTemp = (char*) valstr;
+#endif
+
+  auto p = dict.find(iKeyTemp);
+  if (p != dict.end()){
+    dict[keystr] = valstr;
+  }
+
+  return (DICTIONARY_OK);
+}
+
+int8_t Dictionary::emplace(const char* keystr, const char* valstr) {
+  // TODO: decide if to check for length here
+  iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
+
+  if ( iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
+  if ( (iValLen = strnlen(valstr, _DICT_VALLEN + 1)) > _DICT_VALLEN ) return DICTIONARY_ERR;
+
+#ifdef _DICT_COMPRESS
+  int8_t rc;
+  if ( (rc = compressKey(keystr)) ) return rc;
+  if ( (rc = compressValue(valstr)) ) return rc;
+#else
+  iKeyTemp = (char*) keystr;
+  iValTemp = (char*) valstr;
+#endif
+
+  bool status = dict.emplace(iKeyTemp, iValTemp).second;
+
+#ifdef _LIBDEBUG_
+  status ? Serial.printf("DICT-implace: Insert key:val '%s:%s'\n", iKeyTemp, iValTemp) : Serial.printf("DICT-implace: key: '%s' already exist\n", iKeyTemp);
+#endif
+
+  return (DICTIONARY_OK);
+}
 
 // ==== SEARCHES AND LOOKUPS ===============================================
 String Dictionary::search(const char* keystr) {
@@ -184,66 +203,41 @@ String Dictionary::search(const char* keystr) {
 #else
         iKeyTemp = (char*) keystr;
 #endif
-        uintNN_t key = crc(iKeyTemp, iKeyLen);
-//        iKeyLen = ( iKeyLen < _DICT_LEN ? _DICT_LEN : iKeyLen );
 
-        node* p = search(key, iRoot, iKeyTemp, iKeyLen);
-        if (p) {
+        auto p = dict.find(iKeyTemp);
+        if (p != dict.end()){
+
 #ifdef _DICT_COMPRESS
-            decompressValue(p->valbuf, p->vsize);
-#else
-            iValTemp = p->valbuf;
-            iValTemp[p->vsize] = 0;
-#endif
+            decompressValue(p->second.c_str(), strlen(p->second.c_str()));
             return String(iValTemp);
+#else
+            return String(p->second.c_str()); 
+#endif
         }
     }
     return String("");
 }
 
 String Dictionary::key(size_t i) {
-  if (Q) {
-    node* p = (*Q)[i];
-    if (p) {
-#ifdef _DICT_COMPRESS
-        decompressKey(p->keybuf, p->ksize);
-#else
-        iKeyTemp = p->keybuf;
-        iKeyTemp[p->ksize] = 0;
-#endif
-        return String(iKeyTemp);
-    }
-  }
-  return String();
+/*
+This doesn't work with unordered_map
+or we (might) return an iterator here?)
+*/
+  return String("");
 }
 
 String Dictionary::value(size_t i) {
-    if (Q) {
-        node* p = (*Q)[i];
-        if (p) {
-#ifdef _LIBDEBUG_
-    Serial.printf("Dictionary::value:\n");
-    Serial.printf("\tFound ptr = %u (%u:%d)\n", (uint32_t)p, (uint32_t)p->valbuf, p->vsize);
-#endif
-#ifdef _DICT_COMPRESS
-            decompressValue(p->valbuf, p->vsize);
-#else
-            iValTemp = p->valbuf;
-            iValTemp[p->vsize] = 0;
-#endif
-            return String(iValTemp);
-        }
-    }
-    return String();
+/*
+This doesn't work with unordered_map
+or we (might) return an iterator here?)
+*/
+    return String("");
 }
 
 
 // ==== DELETES =====================================================
 void Dictionary::destroy() {
-    destroy_tree(iRoot);
-    iRoot = NULL;
-    delete Q;
-    Q = new NodeArray(initSize);
+    dict.clear();
 }
 
 int8_t Dictionary::remove(const String& keystr) {
@@ -266,17 +260,11 @@ int8_t Dictionary::remove(const char* keystr) {
     iKeyTemp = (char*) keystr;
 #endif
 
-    uintNN_t key = crc(iKeyTemp, iKeyLen);
-    node* p = search(key, iRoot, iKeyTemp, iKeyLen);
-
-    if (p) {
+    dict.erase(iKeyTemp);
 #ifdef _LIBDEBUG_
-        Serial.printf("Found key to delete int: %u\n", p->key());
-        Serial.printf("Found key to delete ptr: %u\n", (uint32_t)p);
-//        Serial.printf("Found key to delete str: %s\n", keystr);
+      Serial.printf("Removed key: %s\n", keystr);
 #endif
-        iRoot = deleteNode(iRoot, p->key(), iKeyTemp, iKeyLen);
-    }
+
     return DICTIONARY_OK;
 }
 
@@ -284,40 +272,28 @@ int8_t Dictionary::remove(const char* keystr) {
 // ==== SIZES ============================================================================
 // This is the size of the Dictionary in memory (just data, not object)
 size_t Dictionary::size() {
-    size_t ct = count();
     size_t sz = 0;
-    for (size_t i = 0; i < ct; i++) {
-        sz += (*Q)[i]->ksize;
-        sz += (*Q)[i]->vsize;
-        sz += sizeof(node);  // to account for size of the node itself
+    for (const auto& x : dict){
+      sz += x.first.length() + x.second.length();
     }
+
     return sz;
 }
 
 // This is size of JSON file to be created out of this dictionary
 size_t Dictionary::jsize() {
-    size_t ct = count();
     // {"key":"value","key":"value"}\0:
     // 3 (2 brackets and 1 zero terminator) + 4 quotes, a comma and a semicolon = 6 chars)
     // minus one last comma
-    size_t sz = 2 + ct * 6;
-    for (size_t i = 0; i < ct; i++) {
-        sz += key(i).length();
-        sz += value(i).length();
-    }
+    size_t sz = 2 + count() * 6;
+    sz += size();
+
     return sz;
 }
 
 // This is size method for storing in EEPROM
 size_t Dictionary::esize() {
-    size_t ct = count();
-    size_t sz = 0;
-
-    for (size_t i = 0; i < ct; i++) {
-        sz += key(i).length() + 1;
-        sz += value(i).length() + 1;
-    }
-    return sz;
+    return size();
 }
 
 
@@ -325,16 +301,20 @@ size_t Dictionary::esize() {
 String Dictionary::json() {
     String s((char *)0);    // do not pre-allocate anything, reserve() will follow
 
-    s.reserve(jsize());
+    size_t size = jsize();
+    s.reserve(size);
     s += '{';
 
-    size_t ct = count();
-    for (size_t i = 0; i < ct; i++) {
-        String vv = value(i);
+    for (const auto& x : dict){
+        String vv = x.second.c_str();
         vv.replace("\"","\\\"");
-        s += '"' + key(i) + "\":\"" + vv + '"';
-        if (i < ct - 1) s += ',';
+        s += '"';
+        s += x.first.c_str();
+        s += "\":\"";
+        s += vv;
+        s += "\",";
     }
+    s.remove(size-1,1);  // chop last coma
     s += '}';
 
     return s;
@@ -440,14 +420,11 @@ int8_t Dictionary::jload(const char* jc, int aNum) {
 }
 
 
-int8_t Dictionary::merge(Dictionary& dict) {
-    size_t ct = dict.count();
-    int8_t rc;
+int8_t Dictionary::merge(Dictionary& source) {
+    // think about optimizing it with move
+    auto iterator = dict;
+    dict.insert(source.dict.begin(), source.dict.end());
 
-    for (size_t i = 0; i < ct; i++) {
-        rc = insert(dict(i), dict[i]);
-        if (rc) return rc;
-    }
     return DICTIONARY_OK;
 }
 
@@ -464,22 +441,16 @@ bool Dictionary::operator () (const String& keystr) {
     iKeyTemp = (char*) keystr.c_str();
 #endif
 
-    uintNN_t key = crc(iKeyTemp, iKeyLen);
-
-    node* p = search(key, iRoot, iKeyTemp, iKeyLen);
-    if (p) return true;
-    return false;
+    auto lookup = dict.find(iKeyTemp);
+    if (lookup != dict.end())
+      return true;
+    else
+      return false;
 }
 
 
 bool Dictionary::operator == (Dictionary& b) {
-    if (b.size() != size()) return false;
-    if (b.count() != count()) return false;
-    size_t ct = count();
-    for (size_t i = 0; i < ct; i++) {
-        if (value(i) != b[key(i)]) return false;
-    }
-    return true;
+  return (dict == b.dict);
 }
 
 
@@ -487,226 +458,6 @@ bool Dictionary::operator == (Dictionary& b) {
 
 // ==== PRIVATE METHODS ====================================================
 // ==== INSERTS ============================================================
-int8_t Dictionary::insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf) {
-    if (key < leaf->key()) {
-        if (leaf->left != NULL)
-            return insert(key, keystr, keylen, valstr, vallen, leaf->left);
-        else {
-            int8_t rc;
-
-            leaf->left = new node;
-            if (!leaf->left) return DICTIONARY_MEM;
-            rc = leaf->left->create(keystr, keylen, valstr, vallen, NULL, NULL);
-            if (rc) {
-                delete leaf->left;
-                return rc;
-            }
-            rc = Q->append(leaf->left);
-            if (rc) {
-                delete leaf->left;
-                return rc;
-            }
-        }
-    }
-    else if (key > leaf->key()) {
-        if (leaf->right != NULL)
-            return insert(key, keystr, keylen, valstr, vallen, leaf->right);
-        else {
-            int8_t rc;
-
-            leaf->right = new node;
-            if (!leaf->right) return DICTIONARY_MEM;
-            rc = leaf->right->create(keystr, keylen, valstr, vallen, NULL, NULL);
-            if (rc) {
-                delete leaf->right;
-                return rc;
-            }
-            rc = Q->append(leaf->right);
-            if (rc) {
-                delete leaf->right;
-                return rc;
-            }
-        }
-    }
-    else if (key == leaf->key()) {
-        int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
-        if (cmpres == 0) {
-            if (leaf->updateValue(valstr, vallen) != NODEARRAY_OK) return DICTIONARY_MEM;
-        }
-        else {
-
-            if (cmpres < 0) {
-                if (leaf->left != NULL)
-                    return insert(key, keystr, keylen, valstr, vallen, leaf->left);
-                else {
-                    int8_t rc;
-
-                    leaf->left = new node;
-                    if (!leaf->left) return DICTIONARY_MEM;
-                    rc = leaf->left->create(keystr, keylen, valstr, vallen, NULL, NULL);
-                    if (rc) {
-                        delete leaf->left;
-                        return rc;
-                    }
-                    rc = Q->append(leaf->left);
-                    if (rc) {
-                        delete leaf->left;
-                        return rc;
-                    }
-                }
-            }
-            else if (cmpres > 0) {
-                if (leaf->right != NULL)
-                    return insert(key, keystr, keylen, valstr, vallen, leaf->right);
-                else {
-                    int8_t rc;
-
-                    leaf->right = new node;
-                    if (!leaf->right) return DICTIONARY_MEM;
-                    rc = leaf->right->create(keystr, keylen, valstr, vallen, NULL, NULL);
-                    if (rc) {
-                        delete leaf->right;
-                        return rc;
-                    }
-                    rc = Q->append(leaf->right);
-                    if (rc) {
-                        delete leaf->right;
-                        return rc;
-                    }
-                }
-            }
-        }
-    }
-    return DICTIONARY_OK;
-}
-
-
-// ==== SEARCH ===========================================================================
-node* Dictionary::search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen) {
-    if (leaf != NULL) {
-        if ( key == leaf->key() ) {
-            int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
-#ifdef _LIBDEBUG_
-            Serial.println("DICT-SEARCH:");
-            Serial.printf("key    = %u, leaf-key   = %u\n", (uint32_t)key, (uint32_t)leaf->key());
-            Serial.printf("keylen = %u, leaf-ksize = %u\n", keylen, leaf->ksize);
-            Serial.printf("cmpres = %d, memcmp     = %d\n", cmpres, memcmp(leaf->keybuf, keystr, keylen));
-            printNode(leaf);
-#endif
-            if (cmpres == 0) {
-                return leaf;
-            }
-            else {
-                if ( cmpres < 0 )
-                    return search(key, leaf->left, keystr, keylen);
-                else
-                    return search(key, leaf->right, keystr, keylen);
-            }
-        }
-        else {
-            if ( key < leaf->key() )
-                return search(key, leaf->left, keystr, keylen);
-            else
-                return search(key, leaf->right, keystr, keylen);
-        }
-    }
-    else return NULL;
-}
-
-
-// ==== DELETES ==========================================================================
-void Dictionary::destroy_tree(node* leaf) {
-  if (leaf != NULL) {
-    destroy_tree(leaf->left);
-    destroy_tree(leaf->right);
-    delete leaf; // node destructor takes care of the key and value strings
-    leaf = NULL;
-  }
-}
-
-
-node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen) {
-  if (root == NULL) return root;
-
-  if (key < root->key() ) {
-    root->left = deleteNode(root->left, key, keystr, keylen);
-  }
-  // If the key to be deleted is greater than the root's key,
-  // then it lies in right subtree
-  else if (key > root->key() ) {
-    root->right = deleteNode(root->right, key, keystr, keylen);
-  }
-  // if key is same as root's key, then This is the node
-  // to be deleted
-  else {
-    int cmpres = (keylen != root->ksize) ? keylen - root->ksize : memcmp(root->keybuf, keystr, keylen);
-    if (cmpres == 0 ) {
-      // node with only one child or no child
-      if (root->left == NULL) {
-#ifdef _LIBDEBUG_
-        Serial.println("Replacing RIGHT node");
-        printNode(root);
-        printNode(root->right);
-#endif
-        node* temp = root->right;
-        Q->remove(root);
-        delete root;
-        root = NULL;
-        return temp;
-      }
-      else if (root->right == NULL) {
-#ifdef _LIBDEBUG_
-        Serial.println("Replacing LEFT node");
-        printNode(root);
-        printNode(root->left);
-#endif
-        node* temp = root->left;
-        Q->remove(root);
-        delete root;
-        root = NULL;
-        return temp;
-      }
-
-      // node with two children: Get the in-order successor (smallest
-      // in the right subtree)
-      node* temp = minValueNode(root->right);
-#ifdef _LIBDEBUG_
-      Serial.println("Replacing minValueNode node");
-      printNode(root);
-      printNode(temp);
-#endif
-
-      // Copy the in-order successor's content to this node
-      root->updateKey(temp->keybuf, temp->ksize);
-      root->updateValue(temp->valbuf, temp->vsize);
-
-      // Delete the in-order successor
-      root->right = deleteNode(root->right, temp->key(), temp->keybuf, temp->ksize);
-    }
-    else {
-        if ( cmpres < 0 ) {
-            root->left = deleteNode(root->left, key, keystr, keylen);
-        }
-        // If the key to be deleted is greater than the root's key,
-        // then it lies in right subtree
-        else if ( cmpres > 0 ) {
-            root->right = deleteNode(root->right, key, keystr, keylen);
-        }
-    }
-  }
-  return root;
-}
-
-
-node* Dictionary::minValueNode(node* n) {
-  node* current = n;
-
-  /* loop down to find the leftmost leaf */
-  while (current && current->left) current = current->left;
-
-  return current;
-}
-
 
 // ==== KEY/CRC METHODS ===============================================
 
@@ -716,7 +467,6 @@ uintNN_t Dictionary::crc(const void* data, size_t n_bytes) {
     memcpy((void*)&a, data, n_bytes < sizeof(uintNN_t) ? n_bytes : sizeof(uintNN_t));
     return a;
 }
-
 
 #ifdef _DICT_COMPRESS
 
@@ -812,6 +562,7 @@ void Dictionary::decompressValue(const char* aBuf, _DICT_VAL_TYPE aLen) {
 
 
 // ==== DEBUG METHODS ===================================================
+/*
 #ifdef _LIBDEBUG_
 void Dictionary::printDictionary(node* root) {
   if (root != NULL)
@@ -832,11 +583,6 @@ void Dictionary::printNode(node* root) {
   }
 }
 #endif
+*/
 
 #endif // #define _DICTIONARY_H_
-
-
-
-
-
-

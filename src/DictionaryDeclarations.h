@@ -124,8 +124,7 @@ extern "C" {
 
 
 #include <Arduino.h>
-#include "NodeArrayDecl.h"
-//using namespace NodeArray;
+#include <unordered_map>
 
 #ifdef _DICT_PACK_STRUCTURES
 class __attribute((__packed__)) Dictionary {
@@ -136,9 +135,29 @@ class Dictionary {
     Dictionary(size_t init_size = 10);
     ~Dictionary();
 
+    std::unordered_map<std::string, std::string> dict;    // yes, map is public, 'cause it might be convenient to access it directly for iterations, etc...
+
+    /**
+     * @brief - creates new, or updates existing key:value pair
+     * this does NOT match with underlaying std::unordered_map::insert, which only inserts new vals
+     * This is for compatibility with Dictionary API. 
+     */
     inline int8_t       insert(const String& keystr, const String& valstr){return insert(keystr.c_str(), valstr.c_str());};
-    int8_t              insert(const char* keystr, const char* valstr);
-    
+    int8_t       insert(const char* keystr, const char* valstr);
+
+    /**
+     * @brief - creates new key:value pair, does nothing  if key already exist
+     * this method could be used instead of insert() and it also matches std::unordered_map::implace
+     */
+    int8_t              emplace(const char* keystr, const char* valstr);
+    inline int8_t       emplace(const String& keystr, const String& valstr){return emplace(keystr.c_str(), valstr.c_str());};
+
+    /**
+     * @brief - update existing key with a new val, do nothing if key does not exist
+     */
+    int8_t              update(const char* keystr, const char* valstr);
+    inline int8_t       update(const String& keystr, const String& valstr){return update(keystr.c_str(), valstr.c_str());};
+
     inline String       search(const String& keystr){return search(keystr.c_str());};
     String              search(const char* keystr);
     String              key(size_t i);
@@ -155,8 +174,7 @@ class Dictionary {
     String              json();
     inline int8_t       jload (const String& json, int num = 0);
     int8_t              jload (const char* json, int num = 0);
-    int8_t              merge (Dictionary& dict);
-
+    int8_t              merge (Dictionary& source);
 
     void operator = (Dictionary& dict) {
       destroy();
@@ -173,29 +191,29 @@ class Dictionary {
     String operator () (size_t i) { return key(i); }
     bool operator == (Dictionary& b);
     inline bool operator != (Dictionary& b) { return (!(*this == b)); }
-    inline size_t count() { return ( Q ? Q->count() : 0); }
+    inline size_t count() { return ( dict.size()); }
 
 #ifdef _LIBDEBUG_
-    void printNode(node* root);
-    void printDictionary(node* root);
     void printDictionary() {
       Serial.printf("\nDictionary::printDictionary:\n");
-      printDictionary(iRoot);
-      Serial.println();
+        for (const auto &p : dict) {
+            // need to decompress fisrt?
+            Serial.printf("key=%s\tvalue=%s\n", p.first.c_str(), p.second.c_str());
+        }
     };
     void printArray() {
-      Q->printArray();
+      //Q->printArray();
     };
 #endif
 
   private:
 // methods
-    int8_t              insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf);
-    node*               search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen);
 
-    void                destroy_tree(node* leaf);
-    node*               deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen);
-    node*               minValueNode(node* n);
+    /**
+     *  @brief insert new key:val or update existing one with a new val
+     *  key:val should be already (de)compressed
+     */
+    inline int8_t         set(const char* keystr, const char* valstr){ dict[keystr] = valstr; return DICTIONARY_OK; };  // TODO: checks/asserts?
 
     uintNN_t            crc(const void* data, size_t n_bytes);
 
@@ -207,12 +225,10 @@ class Dictionary {
 #endif
 
 // data
-    node*               iRoot;
-    NodeArray*          Q;
     size_t              initSize;
 
-    char*            iKeyTemp;
+    char*            iKeyTemp;    // (de)compressed key goes here
     _DICT_KEY_TYPE      iKeyLen;
-    char*            iValTemp;
+    char*            iValTemp;    // (de)compressed value goes here
     _DICT_VAL_TYPE      iValLen;
 };
