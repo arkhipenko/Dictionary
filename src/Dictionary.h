@@ -208,13 +208,13 @@ class Dictionary {
     inline int8_t       insert(String keystr, String valstr);
     int8_t              insert(const char* keystr, const char* valstr);
     
-    inline String       search(String keystr);
+    inline String       search(const String& keystr);
     String              search(const char* keystr);
     String              key(size_t i);
     String              value(size_t i);
 
     void                destroy();
-    inline int8_t       remove(String keystr);
+    inline int8_t       remove(const String& keystr);
     int8_t              remove(const char* keystr);
 
     size_t              size();
@@ -222,7 +222,7 @@ class Dictionary {
     size_t              esize();
     
     String              json();
-    int8_t              jload (String json, int aNum = 0);
+    int8_t              jload (const String& json, int aNum = 0);
     int8_t              merge (Dictionary& dict);
 
 
@@ -231,12 +231,12 @@ class Dictionary {
       merge(dict);
     }
 
-    inline String operator [] (String keystr) { return search(keystr); }
+    inline String operator [] (const String& keystr) { return search(keystr); }
     inline String operator [] (size_t i) { return value(i); }
     inline int8_t operator () (String keystr, String valstr) { return insert(keystr, valstr); }
     inline int8_t operator () (const char* keystr, const char* valstr) { return insert(keystr, valstr); }
 
-    bool operator () (String keystr);
+    bool operator () (const String& keystr);
 
     String operator () (size_t i) { return key(i); }
     inline bool operator == (Dictionary& b);
@@ -372,7 +372,7 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
 
 
 // ==== SEARCHES AND LOOKUPS ===============================================
-String Dictionary::search(String keystr) {
+String Dictionary::search(const String& keystr) {
     return search(keystr.c_str());
 }
 
@@ -450,7 +450,7 @@ void Dictionary::destroy() {
     Q = new NodeArray::NodeArray(initSize);
 }
 
-int8_t Dictionary::remove(String keystr) {
+int8_t Dictionary::remove(const String& keystr) {
     return remove(keystr.c_str());
 }
 
@@ -545,7 +545,7 @@ String Dictionary::json() {
 }
 
 
-int8_t Dictionary::jload(String json, int aNum) {
+int8_t Dictionary::jload(const String& json, int aNum) {
     bool insideQoute = false;
     bool nextVerbatim = false;
     bool isValue = false;
@@ -655,7 +655,7 @@ int8_t Dictionary::merge(Dictionary& dict) {
 
 // ==== OPERATORS ====================================
 
-bool Dictionary::operator () (String keystr) {
+bool Dictionary::operator () (const String& keystr) {
     iKeyLen = keystr.length();
     if (iKeyLen > _DICT_KEYLEN) return false;
 
