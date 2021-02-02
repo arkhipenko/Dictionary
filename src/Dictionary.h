@@ -87,6 +87,9 @@
   v3.2.1:
     2021-01-04 - bug fix: import of files with windows-style CR/LF
     
+  v3.2.2:
+    2021-01-08 - bug fix: should not allow keys with zero length (crashes search)
+    
  */
 
 
@@ -331,7 +334,7 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
   int8_t rc;
 #endif
 
-  if ( iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
+  if ( iKeyLen == 0 || iKeyLen > _DICT_KEYLEN ) return DICTIONARY_ERR;
   if ( (iValLen = strnlen(valstr, _DICT_VALLEN + 1)) > _DICT_VALLEN ) return DICTIONARY_ERR;
 
 #ifdef _DICT_COMPRESS
@@ -382,7 +385,7 @@ String Dictionary::search(const char* keystr) {
     int8_t rc;
 #endif
 
-    if (iKeyLen <= _DICT_KEYLEN) {
+    if (iKeyLen != 0 && iKeyLen <= _DICT_KEYLEN) {
 #ifdef _DICT_COMPRESS
         if ( (rc = compressKey(keystr)) ) return String("");
 #else

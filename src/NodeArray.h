@@ -42,17 +42,19 @@ class node {
 
     void* operator new(size_t size) {
 
-        void* p = NULL;
+      void* p = NULL;
+      if ( size ) {
 #if defined (ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
-      if (psramFound()) {
-        p = ps_malloc(size);
-      }
+        if (psramFound()) {
+          p = ps_malloc(size);
+        }
 #endif
-      if (!p) p = malloc(size);
+        if (!p) p = malloc(size);
 #ifdef _LIBDEBUG_
-      Serial.printf("NODE-NEW: size=%d (%d) k/v sizes=%d, %d, ptr=%u\n", size, sizeof(node), sizeof(_DICT_KEY_TYPE), sizeof(_DICT_VAL_TYPE), (uint32_t)p);
+        Serial.printf("NODE-NEW: size=%d (%d) k/v sizes=%d, %d, ptr=%u\n", size, sizeof(node), sizeof(_DICT_KEY_TYPE), sizeof(_DICT_VAL_TYPE), (uint32_t)p);
 #endif    
-    return p;
+      }
+      return p;
     }
 
     void operator delete(void* p) {
@@ -102,18 +104,18 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
   if ( aKeySize == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
   vsize = aValSize;
 
-//  ksize = ( aKeySize < _DICT_LEN ? _DICT_LEN : aKeySize );
-
+  uintNN_t ks = ( aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize );
   ksize = aKeySize;
+
   // Now we will try to allocate memory to both char arrays
   keybuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    keybuf = (char*)ps_malloc(ksize + _DICT_EXTRA);
+    keybuf = (char*)ps_malloc(ks + _DICT_EXTRA);
   }
 #endif
   if (!keybuf)
-    keybuf = (char*)malloc(ksize + _DICT_EXTRA);
+    keybuf = (char*)malloc(ks + _DICT_EXTRA);
 
   if (!keybuf) return NODEARRAY_MEM;
 
@@ -132,7 +134,7 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
   }
 
   // Success - we have space for both strings
-  memset(keybuf, 0, ksize);
+  memset(keybuf, 0, ks);
   memcpy(keybuf, aKey, aKeySize);
   memcpy(valbuf, aVal, aValSize);
 
@@ -196,9 +198,9 @@ int8_t node::updateValue(const char* aVal, _DICT_VAL_TYPE aValSize) {
 int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
   if (aKeySize > _DICT_KEYLEN) return NODEARRAY_ERR;;
 
-//  _DICT_KEY_TYPE ks = aKeySize < _DICT_LEN ? _DICT_LEN : aKeySize;
+  _DICT_KEY_TYPE ks = aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize;
 
-  if (aKeySize < ksize) { // new string fits into the old one - will just update
+  if (ks < ksize) { // new string fits into the old one - will just update
     memcpy(keybuf, aKey, aKeySize);
     ksize = aKeySize;
     
@@ -213,11 +215,11 @@ int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
   char* temp = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    temp = (char*)ps_malloc(aKeySize + _DICT_EXTRA);
+    temp = (char*)ps_malloc(ks + _DICT_EXTRA);
   }
 #endif
   if (!temp)
-    temp = (char*)malloc(aKeySize + _DICT_EXTRA);
+    temp = (char*)malloc(ks + _DICT_EXTRA);
 
   if (!temp) { // no memory, will copy as much as we can, and return an error
 
