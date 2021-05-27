@@ -16,6 +16,8 @@ I needed this to work with JSON files and configuration key-value parameters lik
 ```
 This dictionary only works with `String` objects and character strings (char arrays)
 
+**As of v3.3.0 you can load JSON strings with values without quotation marks, but they still would be converted to Strings internally.**
+
 Under the hood is a binary-tree structure based on the reinterpretation of the first 2 (CRC16), 4 (CRC32) or 8 (CRC64) bytes of the key string (padded with 0's). As of version 3.0.0  I dropped use of actual CRC calculation as an unnecessary overhead in both space and calculation time. 
 
 To choose how many bytes represent a "key", define one of the following constants: (note, CRC 32 is a default if you do not define anything).
@@ -75,9 +77,11 @@ If a key does not exist, a new key-value pair is created. If a key exists, the v
 
 `d.jload(s, 2)` will load only first 2 key/value pairs.
 
-NOTE: as of version 3.2.0 JSON strings can contain comments (lines starting with a `#` symbol). 
+`d.jload(file)` will populate dictionary from an opened `FILE Stream`, or any `Stream` for that matter. 
 
-E.g. :
+**NOTE**: as of version 3.2.0 JSON strings can contain comments (lines starting with a `#` symbol). 
+
+E.g., :
 
 ```json
 # This JSON file contains comments
@@ -86,7 +90,23 @@ E.g. :
 }
 ```
 
- 
+**NOTE:** if compiled with the option `#define _DICT_ASCII_ONLY` jload will ignore all non-ASCII characters in the incoming stream. 
+
+This is a valid JSON load as well:
+
+```
+{
+    "value" : 3,
+	anothervalue : "23",
+	and_this : is_ok_too,
+}
+```
+
+All of the above will result in a dictionary:
+
+`{"value":"3","anothervalue":"23","and_this":"is_ok_too"}`
+
+
 
 #### Lookup values:
 

@@ -89,7 +89,13 @@
     
   v3.2.2:
     2021-01-08 - bug fix: should not allow keys with zero length (crashes search)
-    
+
+  v3.2.3:
+    2021-02-22 - update: added ability to ignore non-ascii characters (#define _DICT_ASCII_ONLY)
+   
+  v3.3.0:
+    2021-05-27 - update: json import does not require quotation marks (still creates strings)
+   
  */
 
 
@@ -197,6 +203,8 @@ extern "C" {
 
 #include <Arduino.h>
 #include "NodeArray.h"
+#include "BufferStream/BufferStream.h"
+
 using namespace NodeArray;
 
 #ifdef _DICT_PACK_STRUCTURES
@@ -208,7 +216,11 @@ class Dictionary {
     Dictionary(size_t init_size = 10);
     ~Dictionary();
 
-    inline int8_t       insert(String keystr, String valstr);
+
+    inline int8_t       insert(String keystr, int32_t val);
+    inline int8_t       insert(String keystr, float   val);
+    inline int8_t       insert(String keystr, double  val);
+    inline int8_t       insert(String keystr, String  valstr);
     int8_t              insert(const char* keystr, const char* valstr);
     
     inline String       search(const String& keystr);
@@ -226,6 +238,7 @@ class Dictionary {
     
     String              json();
     int8_t              jload (const String& json, int aNum = 0);
+    int8_t              jload (Stream& json, int aNum = 0);
     int8_t              merge (Dictionary& dict);
 
 
@@ -236,6 +249,9 @@ class Dictionary {
 
     inline String operator [] (const String& keystr) { return search(keystr); }
     inline String operator [] (size_t i) { return value(i); }
+    inline int8_t operator () (String keystr, int32_t val) { return insert(keystr, val); }
+    inline int8_t operator () (String keystr, float val) { return insert(keystr, val); }
+    inline int8_t operator () (String keystr, double val) { return insert(keystr, val); }
     inline int8_t operator () (String keystr, String valstr) { return insert(keystr, valstr); }
     inline int8_t operator () (const char* keystr, const char* valstr) { return insert(keystr, valstr); }
 
@@ -324,7 +340,19 @@ Dictionary::~Dictionary() {
 
 // ===== INSERTS =====================================================
 int8_t Dictionary::insert(String keystr, String valstr) {
-  return insert(keystr.c_str(), valstr.c_str());
+  return insert( keystr.c_str(), valstr.c_str() );
+}
+
+int8_t Dictionary::insert(String keystr, int32_t val) {
+  return insert( keystr, String(val) );
+}
+
+int8_t Dictionary::insert(String keystr, float val) {
+  return insert( keystr, String(val) );
+}
+
+int8_t Dictionary::insert(String keystr, double val) {
+  return insert( keystr, String(val) );
 }
 
 int8_t Dictionary::insert(const char* keystr, const char* valstr) {
@@ -392,7 +420,6 @@ String Dictionary::search(const char* keystr) {
         iKeyTemp = (char*) keystr;
 #endif
         uintNN_t key = crc(iKeyTemp, iKeyLen);
-//        iKeyLen = ( iKeyLen < _DICT_LEN ? _DICT_LEN : iKeyLen );
 
         node* p = search(key, iRoot, iKeyTemp, iKeyLen);
         if (p) {
@@ -547,22 +574,24 @@ String Dictionary::json() {
     return s;
 }
 
-
 int8_t Dictionary::jload(const String& json, int aNum) {
+  ReadBufferStream stream( (uint8_t*)json.c_str(), json.length() );
+  return jload(stream, aNum);
+}
+
+int8_t Dictionary::jload(Stream& json, int aNum) {
     bool insideQoute = false;
     bool nextVerbatim = false;
     bool isValue = false;
     bool isComment = false;
-    const char* jc = json.c_str();
-    size_t len = json.length();
     int p = 0;
     int8_t rc;
     String currentKey;
     String currentValue;
 
-    for (size_t i = 0; i < len; i++, jc++) {
-        char c = *jc;
-        
+    while ( json.peek() >= 0 ) {
+        char c = json.read();
+
         if ( isComment ) {
           if ( c == '\n' ) {
             isComment = false;
@@ -573,36 +602,32 @@ int8_t Dictionary::jload(const String& json, int aNum) {
         if (nextVerbatim) {
           nextVerbatim = false;
         }
+        
+        //  not a comment and not a verbatim char
         else {
           // process all special cases: '\', '"', ':', and ','
           if (c == '\\' ) {
             nextVerbatim = true;
             continue;
           }
-          if ( c == '#' ) {
-            if ( !insideQoute ) {
-              isComment = true;
-              continue;
-            }
-          }
+
           if ( c == '\"' ) {
             if (!insideQoute) {
+              if ( isValue ) {
+                if ( currentValue.length() > 0 ) return DICTIONARY_FMT;
+              }
+              else {
+                if ( currentKey.length() > 0 ) return DICTIONARY_FMT;
+              }
               insideQoute = true;
               continue;
             }
             else {
               insideQoute = false;
-              if (isValue) {
-                rc = insert( currentKey, currentValue );
-                if (rc) return DICTIONARY_MEM;  // if error - exit with an error code
-                currentValue = String();
-                currentKey = String();
-                p++;
-                if (aNum > 0 && p >= aNum) break;
-              }
               continue;
             }
           }
+          
           if (c == '\n') {
             if ( insideQoute ) {
               return DICTIONARY_QUOTE;
@@ -610,10 +635,18 @@ int8_t Dictionary::jload(const String& json, int aNum) {
             if ( nextVerbatim ) {
               return DICTIONARY_BCKSL;
             }
-            isValue = false;  // missing comma, but let's forgive that
-            continue;
           }
+          
+#ifdef _DICT_ASCII_ONLY
+          if ( c > 127 ) continue;  //  ignore non-ascii characters
+#endif
+          
           if (!insideQoute) {
+            if ( c == '#' ) {
+              isComment = true;
+              continue;
+            }
+
             if (c == ':') {
               if ( isValue ) {
                 return DICTIONARY_COMMA; //missing comma probably
@@ -621,26 +654,32 @@ int8_t Dictionary::jload(const String& json, int aNum) {
               isValue = true;
               continue;
             }
-            if (c == ',') {
-              if ( !isValue ) {
-                return DICTIONARY_COLON; //missing colon probably
+
+            if ( c == '{' || c == ' ' || c == '\t'  || c == '\r' ) continue;
+            
+            if ( c == ',' || c == '\n' || c == '}') {
+              if ( isValue ) {
+                if ( currentValue.length() == 0 ) return DICTIONARY_FMT;
+                isValue = false;
+                rc = insert( currentKey, currentValue );
+                if (rc) return DICTIONARY_MEM;  // if error - exit with an error code
+                currentValue = String();
+                currentKey = String();
+                p++;
+                if (aNum > 0 && p >= aNum) break;
               }
-              isValue = false;
+              else {
+                if ( c == ',' ) return DICTIONARY_FMT;
+              }
               continue;
             }
-            if ( c == '{' || c == '}' || c == ' ' || c == '\t' || c == '\r' ) continue;
-            return DICTIONARY_FMT;
           }
-        }
-        if (insideQoute) {
           if (isValue) currentValue.concat(c);
           else currentKey.concat(c);
         }
       }
       if (insideQoute || nextVerbatim || (aNum > 0 && p < aNum )) return DICTIONARY_EOF;
-    #ifdef _LIBDEBUG_
-        Serial.printf("Dictionary::jload: DICTIONARY_OK\n");
-    #endif
+
       return DICTIONARY_OK;
 }
 
@@ -791,13 +830,7 @@ node* Dictionary::search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY
     if (leaf != NULL) {
         if ( key == leaf->key() ) {
             int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
-#ifdef _LIBDEBUG_
-            Serial.println("DICT-SEARCH:");
-            Serial.printf("key    = %u, leaf-key   = %u\n", (uint32_t)key, (uint32_t)leaf->key());
-            Serial.printf("keylen = %u, leaf-ksize = %u\n", keylen, leaf->ksize);
-            Serial.printf("cmpres = %d, memcmp     = %d\n", cmpres, memcmp(leaf->keybuf, keystr, keylen));
-            printNode(leaf);
-#endif
+
             if (cmpres == 0) {
                 return leaf;
             }
@@ -848,11 +881,6 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr, _DICT
     if (cmpres == 0 ) {
       // node with only one child or no child
       if (root->left == NULL) {
-#ifdef _LIBDEBUG_
-        Serial.println("Replacing RIGHT node");
-        printNode(root);
-        printNode(root->right);
-#endif
         node* temp = root->right;
         Q->remove(root);
         delete root;
@@ -860,11 +888,6 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr, _DICT
         return temp;
       }
       else if (root->right == NULL) {
-#ifdef _LIBDEBUG_
-        Serial.println("Replacing LEFT node");
-        printNode(root);
-        printNode(root->left);
-#endif
         node* temp = root->left;
         Q->remove(root);
         delete root;
@@ -875,11 +898,6 @@ node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr, _DICT
       // node with two children: Get the in-order successor (smallest
       // in the right subtree)
       node* temp = minValueNode(root->right);
-#ifdef _LIBDEBUG_
-      Serial.println("Replacing minValueNode node");
-      printNode(root);
-      printNode(temp);
-#endif
 
       // Copy the in-order successor's content to this node
       root->updateKey(temp->keybuf, temp->ksize);
@@ -943,10 +961,6 @@ int8_t Dictionary::compressKey(const char* aStr) {
 
     if (iKeyLen > _DICT_KEYLEN + 1) return DICTIONARY_OOB;
 
-#ifdef _LIBDEBUG_
-    Serial.println("DICT-COMPKEY:");
-    Serial.printf("\t string = %s, iKeyLen = %d\n", aStr, iKeyLen);
-#endif
     return DICTIONARY_OK;
 }
 
@@ -958,18 +972,10 @@ int8_t Dictionary::compressValue(const char* aStr) {
 #elif defined (_DICT_COMPRESS_SMAZ)
     iValLen = smaz_compress((char*) aStr, strlen(aStr), iValTemp, _DICT_VALLEN + 1);
 
-// #else
-//     iValLen = strlen(aStr);
-//     memcpy(iValTemp, aStr, iValLen);
-
 #endif
 
     if (iValLen > _DICT_VALLEN + 1) return DICTIONARY_OOB;
-    
-#ifdef _LIBDEBUG_
-    Serial.println("DICT-COMPVAL:");
-    Serial.printf("\t string = %s, iValLen = %d\n", aStr, iValLen);
-#endif
+
     return DICTIONARY_OK;
 }
 
@@ -982,11 +988,6 @@ void Dictionary::decompressKey(const char* aBuf, _DICT_KEY_TYPE aLen) {
 #elif defined (_DICT_COMPRESS_SMAZ)
     iKeyLen = smaz_decompress((char*) aBuf, (int) aLen, iKeyTemp, (int) (_DICT_KEYLEN + 1));
     iKeyTemp[iKeyLen] = 0;
-
-// #else
-//     memcpy(iKeyTemp, aBuf, aLen);
-//     iKeyTemp[aLen] = 0;
-//     iKeyLen = aLen;
 
 #endif
 }
@@ -1001,15 +1002,6 @@ void Dictionary::decompressValue(const char* aBuf, _DICT_VAL_TYPE aLen) {
     iValLen = smaz_decompress((char*) aBuf, (int) aLen, iValTemp, (int) (_DICT_VALLEN + 1) );
     iValTemp[iValLen] = 0;
 
-// #else
-//     memcpy(iValTemp, aBuf, aLen);
-//     iValTemp[aLen] = 0;
-//     iValLen = aLen;
-
-#endif
-
-#ifdef _LIBDEBUG_
-    Serial.printf("\t iValTemp = %s, iValLen = %d\n", iValTemp, iValLen);
 #endif
 }
 

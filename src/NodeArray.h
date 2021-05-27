@@ -101,8 +101,12 @@ class node {
 
 int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight) {
 
+  size_t  vsize_final;
+  
   if ( aKeySize == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
   vsize = aValSize;
+  vsize_final = vsize + _DICT_EXTRA == 0 ? 1 : vsize + _DICT_EXTRA;
+  
 
   uintNN_t ks = ( aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize );
   ksize = aKeySize;
@@ -122,11 +126,11 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
   valbuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
-    valbuf = (char*)ps_malloc(vsize + _DICT_EXTRA);
+    valbuf = (char*)ps_malloc(vsize_final);
   }
 #endif
   if (!valbuf)
-    valbuf = (char*)malloc(vsize + _DICT_EXTRA);
+    valbuf = (char*)malloc(vsize_final);
 
   if (!valbuf) {
     free(keybuf);
