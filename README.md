@@ -200,6 +200,31 @@ while ( d.count() ) d.remove(d(0));
 
 ### Memory management:
 
+#### Footprint
+
+Each `Dictionary` object requires 28 bytes (22 for packed structures) for itself + 20 bytes for underlying `NodeArray` obiect.
+
+If you use compression, the Dictionary needs to allocate space for compressing / decompressing strings equal to your `_DICT_KEYLEN` and `_DICT_VALLEN` settings.
+
+For every key/value pair a new `node` object is created (24 bytes (18 bytes for compressed structures)) and space for key and value strings is allocated equal to the length of key and value strings + a few bytes for storing length (the amount of bytes depends on the `_DICT_KEYLEN` and `_DICT_VALLEN` settings - the Dictionary allocates 1, 2 or 4 bytes as necessary. The minimal number of bytes for the key string depends on the `_DICT_CRC` setting and will be 2, 4, or 8 bytes respectively).
+
+**Example**:
+
+Unpacked structures, CRC32, no compression, default `_DICT_KEYLEN` and `_DICT_VALLEN` settings (64 and 254 bytes respectively)
+
+key/value = "this is a key"  : "This is a Value"
+
+memory footprint:
+
+- Dictionary object = 28 bytes
+- NodeArray object = 20 bytes
+- 1 x node object = 24 bytes
+- 1 x key string = (13 + 1) bytes
+- 1 x value string = (15 + 1) bytes
+- TOTAL: **102 bytes**
+
+By default Dictionary allocates `NodeArray` space for 10 nodes. Each key/value is allocated upon insertion. 
+
 #### DRAM vs. PSRAM
 
 Dictionary allocates all its objects on the Heap. For ESP32 microcontrollers specifically there is an option to use PSRAM (if present) as a storage:
