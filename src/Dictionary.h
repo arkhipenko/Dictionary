@@ -674,9 +674,9 @@ int8_t Dictionary::jload(Stream& json, int aNum) {
               continue;
             }
           }
-          if (isValue) currentValue.concat(c);
-          else currentKey.concat(c);
         }
+        if (isValue) currentValue.concat(c);
+        else currentKey.concat(c);
       }
       if (insideQoute || nextVerbatim || (aNum > 0 && p < aNum )) return DICTIONARY_EOF;
 
