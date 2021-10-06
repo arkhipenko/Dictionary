@@ -97,8 +97,8 @@ This is a valid JSON load as well:
 ```
 {
     "value" : 3,
-	anothervalue : "23",
-	and_this : is_ok_too,
+    anothervalue : "23",
+    and_this : is_ok_too,
 }
 ```
 
