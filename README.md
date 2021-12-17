@@ -196,6 +196,22 @@ while ( d.count() ) d.remove(d(0));
 
 
 
+### Platform.io Support
+
+As of version 3.5.0 support for platform.io system has been simplified:
+
+In your programs, use `DictionaryDeclarations.h` include instead of the `Dictionary.h` one.
+
+In your `src` folder add this file: 
+
+File: `Dictionary.cpp`:
+
+```c++
+#include <Dictionary.h>
+```
+
+that's it. 
+
 
 
 ### Memory management:

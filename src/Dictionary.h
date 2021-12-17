@@ -1,308 +1,330 @@
-/*
-  Implementation of the Dictionary data type
-  for String key-value pairs, based on
-  CRC32/64 has keys and binary tree search
+#include "DictionaryDeclarations.h"
 
-  ---
+int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight) {
 
-  Copyright (C) Anatoli Arkhipenko, 2020
-  All rights reserved.
+  size_t  vsize_final;
+  
+  if ( aKeySize == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
+  vsize = aValSize;
+  vsize_final = vsize + _DICT_EXTRA == 0 ? 1 : vsize + _DICT_EXTRA;
+  
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+  uintNN_t ks = ( aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize );
+  ksize = aKeySize;
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-  GNU General Public License for more details.
+  // Now we will try to allocate memory to both char arrays
+  keybuf = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    keybuf = (char*)ps_malloc(ks + _DICT_EXTRA);
+  }
+#endif
+  if (!keybuf)
+    keybuf = (char*)malloc(ks + _DICT_EXTRA);
 
-  You should have received a copy of the GNU General Public License
-  along with this program. If not, see <http://www.gnu.org/licenses/>.
+  if (!keybuf) return NODEARRAY_MEM;
 
-  ---
+  valbuf = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    valbuf = (char*)ps_malloc(vsize_final);
+  }
+#endif
+  if (!valbuf)
+    valbuf = (char*)malloc(vsize_final);
 
-  v1.0.0:
-    2020-04-09 - Initial release
+  if (!valbuf) {
+    free(keybuf);
+    return NODEARRAY_MEM;
+  }
 
-  v1.0.1:
-    2020-04-10 - feature: operator (), examples, benchmarks
+  // Success - we have space for both strings
+  memset(keybuf, 0, ks);
+  memcpy(keybuf, aKey, aKeySize);
+  memcpy(valbuf, aVal, aValSize);
 
-  v1.0.2:
-    2020-04-10 - feature: operators == and !=
-                 bug: memory leak after destroy method call.
+  left = aLeft;
+  right = aRight;
 
-  v1.1.0:
-    2020-04-12 - feature: delete a node method.
-                 feature: Dictionary Array optimization
+#ifdef _LIBDEBUG_
+  Serial.print("NODE-CREATE: created a node:\n");
+  printNode();
+#endif
 
-  v1.1.1:
-    2020-04-13 - feature: check if key exists via d("key")
+  return NODEARRAY_OK;
+}
 
-  v1.2.0:
-    2020-04-25 - bug: incorrect node handling during deletion
-                 performance improvements
 
-  v1.2.1:
-    2020-04-26 - feature: switched to static crc tables
+int8_t node::updateValue(const char* aVal, _DICT_VAL_TYPE aValSize) {
+  if ( aValSize > _DICT_VALLEN ) return NODEARRAY_ERR;
+  
+  if (aValSize <= vsize) { // new string fits into the old one - will just update
+    memcpy(valbuf, aVal, aValSize);
+    vsize = aValSize;
 
-  v1.3.0:
-    2020-04-27 - feature: crc 16/32/64 support. 32 is default
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEVALUE: updated value for key = %d\n", (uint32_t)keybuf);
+    printNode();
+#endif
 
-  v2.0.0:
-    2020-05-14 - feature: support PSRAM for ESP32,
-                 Switch to char* for key/values,
-                 Error codes for memory-allocating methods
-                 Key and Value max length constants
+    return NODEARRAY_OK;
+  }
 
-  v2.1.0:
-    2020-05-21 - feature: json output and load from json string
-                 feature: merge and '=' operator (proper assignment)
-                 bug fix: destroy heap corruption fixed
+  char* temp = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    temp = (char*)ps_malloc(aValSize + _DICT_EXTRA);
+  }
+#endif
+  if (!temp)
+    temp = (char*)malloc(aValSize + _DICT_EXTRA);
 
-  v2.1.1:
-    2020-05-22 - bug fix: memory allocation issues during node deletion
+  if (!temp) { // no memory
+    return NODEARRAY_MEM;
+  }
 
-  v2.1.2:
-    2020-05-24 - consistent use of size_t type
+  // ok - we have enough space for the new value, lets copy the string there and delete the old one.
+
+  if ( valbuf ) free(valbuf);
+  valbuf = temp;
+
+  vsize = aValSize;
+  memcpy(valbuf, aVal, vsize);
+  
+#ifdef _LIBDEBUG_
+  Serial.printf("NODE-UPDATEVALUE: replaced value for key = %d\n", (uint32_t)key());
+  printNode();
+#endif
+
+  return NODEARRAY_OK;
+}
+
+
+int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
+  if (aKeySize > _DICT_KEYLEN) return NODEARRAY_ERR;;
+
+  _DICT_KEY_TYPE ks = aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize;
+
+  if (ks < ksize) { // new string fits into the old one - will just update
+    memcpy(keybuf, aKey, aKeySize);
+    ksize = aKeySize;
     
-  v3.0.0:
-    2020-06-01 - non-CRC based search. Optimizations.
-
-  v3.1.0:
-    2020-06-03 - support for key and value compression (SHOCO and SMAZ). Optimizations.
-    
-  v3.1.1:
-    2020-08-05 - clean-up to suppress compiler warnings
-    
-  v3.1.2:
-    2020-09-16 - use of namespace for NodeArray
-    
-  v3.2.0:
-    2020-12-21 - support for comments (#) in imported JSON files
-                 bug fix: heap corrupt when missing a comma
-                 feature: stricter JSON formatting check
-                 
-  v3.2.1:
-    2021-01-04 - bug fix: import of files with windows-style CR/LF
-    
-  v3.2.2:
-    2021-01-08 - bug fix: should not allow keys with zero length (crashes search)
-
-  v3.2.3:
-    2021-02-22 - update: added ability to ignore non-ascii characters (#define _DICT_ASCII_ONLY)
-   
-  v3.3.0:
-    2021-05-27 - update: json import does not require quotation marks (still creates strings)
-   
- */
-
-
-#ifndef _DICTIONARY_H_
-#define _DICTIONARY_H_
-
-#ifndef _DICT_KEYLEN
-#define _DICT_KEYLEN 64
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEKEY: updated key = %d\n", (uint32_t)keybuf);
+    printNode();
 #endif
 
-#if _DICT_KEYLEN < UINT8_MAX
-#define _DICT_KEY_TYPE  uint8_t
+    return NODEARRAY_OK;
+  }
+  
+  char* temp = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    temp = (char*)ps_malloc(ks + _DICT_EXTRA);
+  }
+#endif
+  if (!temp)
+    temp = (char*)malloc(ks + _DICT_EXTRA);
+
+  if (!temp) { // no memory, will copy as much as we can, and return an error
+
+#ifdef _LIBDEBUG_
+    Serial.printf("NODE-UPDATEKEY: NOMEMORY replace keybuf = %d\n", (uint32_t)keybuf);
+    printNode();
 #endif
 
-#if _DICT_KEYLEN >= UINT8_MAX && _DICT_KEYLEN < UINT16_MAX
-#define _DICT_KEY_TYPE  uint16_t
+    return NODEARRAY_MEM;
+  }
+
+  // ok - we have enough space for the new value, lets copy the string there and delete the old one.
+
+  if ( keybuf ) free(keybuf);
+  keybuf = temp;
+
+  ksize = aKeySize;
+  memcpy(keybuf, aKey, ksize);
+  
+#ifdef _LIBDEBUG_
+  Serial.printf("NODE-UPDATEKEY: replaced keybuf = %d\n", (uint32_t)keybuf);
+  printNode();
 #endif
 
-#if _DICT_KEYLEN >= UINT16_MAX && _DICT_KEYLEN < UINT32_MAX
-#define _DICT_KEY_TYPE  uint32_t
-#endif
-
-// What is the likelihood of a microcontroller having that much memory?
-#if _DICT_KEYLEN >= UINT32_MAX
-#define _DICT_KEY_TYPE  uint64_t
-#endif
+  return NODEARRAY_OK;
+}
 
 
-
-#ifndef _DICT_VALLEN
-#define _DICT_VALLEN 254
-#endif
-
-#if _DICT_VALLEN < UINT8_MAX
-#define _DICT_VAL_TYPE  uint8_t
-#endif
-
-#if _DICT_VALLEN >= UINT8_MAX && _DICT_VALLEN < UINT16_MAX
-#define _DICT_VAL_TYPE  uint16_t
-#endif
-
-#if _DICT_VALLEN >= UINT16_MAX && _DICT_VALLEN < UINT32_MAX
-#define _DICT_VAL_TYPE  uint32_t
-#endif
-
-#if _DICT_VALLEN >= UINT32_MAX
-#define _DICT_VAL_TYPE  uint64_t
-#endif
-
-
-
-#define DICTIONARY_OK         0
-#define DICTIONARY_ERR      (-1)
-#define DICTIONARY_MEM      (-2)
-#define DICTIONARY_OOB      (-3)
-
-#define DICTIONARY_COMMA    (-20)
-#define DICTIONARY_COLON    (-21)
-#define DICTIONARY_QUOTE    (-22)
-#define DICTIONARY_BCKSL    (-23)
-#define DICTIONARY_FMT      (-25)
-#define DICTIONARY_EOF      (-99)
-
-
-// There is no CRC calculation anymore, but the naming stuck
-#ifndef _DICT_CRC
-#define _DICT_CRC  32
-#endif
-
-#if !( _DICT_CRC == 16 || _DICT_CRC == 32 || _DICT_CRC == 64)
-#define _DICT_CRC  32
-#endif
-
-#if _DICT_CRC == 16
-#define uintNN_t uint16_t
-#endif
-
-#if _DICT_CRC == 32
-#define uintNN_t uint32_t
-#endif
-
-#if _DICT_CRC == 64
-#define uintNN_t uint64_t
-#endif
-
-#if defined(_DICT_COMPRESS_SHOCO)
-
-#define _DICT_COMPRESS
-#define _DICT_EXTRA 0
-#include "shoco/shoco.h"
-
-#elif defined (_DICT_COMPRESS_SMAZ)
-
-#define _DICT_COMPRESS
-#define _DICT_EXTRA 0
-extern "C" {
-#include "smaz/smaz.h"
+#ifdef _LIBDEBUG_
+void node::printNode() {
+  Serial.println("node:");
+  Serial.printf("\tkeyNN   = %u\n", key());
+  Serial.printf("\tkey  = ");
+  for (int i=0; i<ksize; i++) Serial.printf("%02x", keybuf[i]); 
+  Serial.printf(" (%d) (%u)\n", ksize, (uint32_t)keybuf);
+  Serial.printf("\tval  = ");
+  for (int i=0; i<vsize; i++) Serial.printf("%02x", valbuf[i]); 
+  Serial.printf(" (%d) (%u)\n", vsize, (uint32_t)valbuf);
+  Serial.printf("\tLeft n  = %u\n", (uint32_t)left);
+  Serial.printf("\tRight n = %u\n", (uint32_t)right);
 }
 #endif
 
-#ifndef _DICT_EXTRA
-#define _DICT_EXTRA 1
+
+
+
+// init the queue (constructor).
+NodeArray::NodeArray(size_t init_size) {
+  size = 0;       // set the size of queue to zero.
+  items = 0;      // set the number of items of queue to zero.
+  tail = 0;       // set the tail of the queue to zero.
+
+  initialSize = init_size;
+  contents = NULL;
+
+  // Let's not allocate memory in the constructor and delegate it to the
+  // resize method, that could return something.
+
+}
+
+// clear the queue (destructor).
+NodeArray::~NodeArray() {
+  free(contents); // deallocate the array of the queue.
+
+  contents = NULL; // set queue's array pointer to nowhere.
+
+  size = 0;        // set the size of queue to zero.
+  items = 0;       // set the number of items of queue to zero.
+  tail = 0;        // set the tail of the queue to zero.
+}
+
+// resize the size of the queue.
+int8_t NodeArray::resize(const size_t s) {
+  // defensive issue.
+  if (s <= 0) return NODEARRAY_ERR;
+  //    exit ("QUEUE: error due to undesirable size for queue size.");
+
+  // allocate enough memory for the temporary array.
+  node** temp = NULL;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+  if (psramFound()) {
+    temp = (node**)ps_malloc(sizeof(node*) * s);
+  }
 #endif
+  if (!temp)
+    temp = (node**)malloc(sizeof(node*) * s);
 
+  // if there is a memory allocation error.
+  if (temp == NULL) return NODEARRAY_MEM;
+  //    exit ("QUEUE: insufficient memory to initialize temporary queue.");
 
-#include <Arduino.h>
-#include "NodeArray.h"
-#include "BufferStream/BufferStream.h"
+  // copy the items from the old queue to the new one.
+  for (size_t i = 0; i < items; i++)
+    temp[i] = contents[i];
 
-using namespace NodeArray;
+  // deallocate the old array of the queue.
+  free(contents);
 
-#ifdef _DICT_PACK_STRUCTURES
-class __attribute((__packed__)) Dictionary {
-#else
-class Dictionary {
-#endif
-  public:
-    Dictionary(size_t init_size = 10);
-    ~Dictionary();
+  // copy the pointer of the new queue.
+  contents = temp;
 
+  // set the head and tail of the new queue.
+  tail = items;
 
-    inline int8_t       insert(String keystr, int32_t val);
-    inline int8_t       insert(String keystr, float   val);
-    inline int8_t       insert(String keystr, double  val);
-    inline int8_t       insert(String keystr, String  valstr);
-    int8_t              insert(const char* keystr, const char* valstr);
-    
-    inline String       search(const String& keystr);
-    String              search(const char* keystr);
-    String              key(size_t i);
-    String              value(size_t i);
+  // set the new size of the queue.
+  size = s;
+  return NODEARRAY_OK;
+}
 
-    void                destroy();
-    inline int8_t       remove(const String& keystr);
-    int8_t              remove(const char* keystr);
+// add an item to the queue.
+int8_t NodeArray::append(const node* i) {
+  // check if the queue is full.
+  if (isFull()) {
+    int8_t rc = resize(size + initialSize);
+    if (rc) return rc;
+  }
 
-    size_t              size();
-    size_t              jsize();
-    size_t              esize();
-    
-    String              json();
-    int8_t              jload (const String& json, int aNum = 0);
-    int8_t              jload (Stream& json, int aNum = 0);
-    int8_t              merge (Dictionary& dict);
+  // store the item to the array.
+  contents[tail++] = (node*)i;
 
-
-    void operator = (Dictionary& dict) {
-      destroy();
-      merge(dict);
-    }
-
-    inline String operator [] (const String& keystr) { return search(keystr); }
-    inline String operator [] (size_t i) { return value(i); }
-    inline int8_t operator () (String keystr, int32_t val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, float val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, double val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, String valstr) { return insert(keystr, valstr); }
-    inline int8_t operator () (const char* keystr, const char* valstr) { return insert(keystr, valstr); }
-
-    bool operator () (const String& keystr);
-
-    String operator () (size_t i) { return key(i); }
-    inline bool operator == (Dictionary& b);
-    inline bool operator != (Dictionary& b) { return (!(*this == b)); }
-    inline size_t count() { return ( Q ? Q->count() : 0); }
+  // increase the items.
+  items++;
 
 #ifdef _LIBDEBUG_
-    void printNode(node* root);
-    void printDictionary(node* root);
-    void printDictionary() {
-      Serial.printf("\nDictionary::printDictionary:\n");
-      printDictionary(iRoot);
-      Serial.println();
-    };
-    void printArray() {
-      Q->printArray();
-    };
+  Serial.printf("NODEARRAY-APPEND: successfully added a node %x. Cur size: %d\n", (uint32_t) i, items);
+#endif
+  return NODEARRAY_OK;
+}
+
+
+// remove an item from the queue.
+void NodeArray::remove(const node* i) {
+  // check if the queue is empty.
+
+#ifdef _LIBDEBUG_
+  Serial.printf("NODEARRAY-REMOVE: request remove: %u\n", (uint32_t)i);
 #endif
 
-  private:
-// methods
-    int8_t              insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf);
-    node*               search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen);
+  if (isEmpty()) return;
+  //    exit ("QUEUE: can't pop item from queue: queue is empty.");
 
-    void                destroy_tree(node* leaf);
-    node*               deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen);
-    node*               minValueNode(node* n);
+  if (items > 1) {
+    int8_t found = 0;
+    size_t index = 0;
 
-    uintNN_t            crc(const void* data, size_t n_bytes);
+    for (size_t j = 0; j < items; j++) {
+      if (i == contents[j]) {
+        index = j;
+        found = 1;
+        break;
+      }
+    }
 
-#ifdef _DICT_COMPRESS
-    int8_t              compressKey(const char* aStr);
-    int8_t              compressValue(const char* aStr);
-    void                decompressKey(const char* aBuf, _DICT_KEY_TYPE aLen);
-    void                decompressValue(const char* aBuf, _DICT_VAL_TYPE aLen);
+    if ( !found ) return;  // how?
+
+#ifdef _LIBDEBUG_
+    Serial.printf("NODEARRAY-REMOVE: found index: %d\n", index);
 #endif
 
-// data
-    node*               iRoot;
-    NodeArray::NodeArray* Q;
-    size_t              initSize;
+    for (size_t j = index; j < items - 1; j++) {
+      contents[j] = contents[j + 1];
+    }
+  }
+  tail--;
+  items--;
+#ifdef _LIBDEBUG_
+//    for (size_t j = 0; j < items; j++) {
+//        Serial.printf("%d : %u\n", j, (uint32_t)contents[j]);
+//    }
+    Serial.printf("NODEARRAY-REMOVE: removal complete\n");
+    Serial.printf("NODEARRAY-REMOVE: current count: %d\n", items);
+#endif
+}
 
-    char*            iKeyTemp;
-    _DICT_KEY_TYPE      iKeyLen;
-    char*            iValTemp;
-    _DICT_VAL_TYPE      iValLen;
-};
+
+#ifdef _LIBDEBUG_
+void NodeArray::printArray() {
+  Serial.printf("\nNodeArray::printArray:\n");
+  for (size_t i = 0; i < items; i++) {
+    Serial.printf("%d: %u\n", i, (uint32_t)contents[i]);
+  }
+  Serial.println();
+}
+#endif
+
+// check if the queue is empty.
+bool NodeArray::isEmpty() const {
+  return items == 0;
+}
+
+// check if the queue is full.
+bool NodeArray::isFull() const {
+  return items == size;
+}
+
+// get the number of items in the queue.
+size_t NodeArray::count() const {
+  return items;
+}
+
 
 
 
@@ -312,7 +334,7 @@ Dictionary::Dictionary(size_t init_size) {
 
   // This is unlikely to fail as practically no memory is allocated by the NodeArray
   // All memory allocation is delegated to the first append
-  Q = new NodeArray::NodeArray(init_size);
+  Q = new NodeArray(init_size);
   initSize = init_size;
 
 #ifdef _DICT_COMPRESS
@@ -339,21 +361,6 @@ Dictionary::~Dictionary() {
 // ==== PUBLIC METHODS ===============================================
 
 // ===== INSERTS =====================================================
-int8_t Dictionary::insert(String keystr, String valstr) {
-  return insert( keystr.c_str(), valstr.c_str() );
-}
-
-int8_t Dictionary::insert(String keystr, int32_t val) {
-  return insert( keystr, String(val) );
-}
-
-int8_t Dictionary::insert(String keystr, float val) {
-  return insert( keystr, String(val) );
-}
-
-int8_t Dictionary::insert(String keystr, double val) {
-  return insert( keystr, String(val) );
-}
 
 int8_t Dictionary::insert(const char* keystr, const char* valstr) {
   // TODO: decide if to check for length here
@@ -403,10 +410,6 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
 
 
 // ==== SEARCHES AND LOOKUPS ===============================================
-String Dictionary::search(const String& keystr) {
-    return search(keystr.c_str());
-}
-
 String Dictionary::search(const char* keystr) {
     iKeyLen = strnlen(keystr, _DICT_KEYLEN + 1);
 #ifdef _DICT_COMPRESS
@@ -477,7 +480,7 @@ void Dictionary::destroy() {
     destroy_tree(iRoot);
     iRoot = NULL;
     delete Q;
-    Q = new NodeArray::NodeArray(initSize);
+    Q = new NodeArray(initSize);
 }
 
 int8_t Dictionary::remove(const String& keystr) {
@@ -1028,9 +1031,8 @@ void Dictionary::printNode(node* root) {
     Serial.println("NULL:");
   }
 }
-#endif
+#endif  //  _LIBDEBUG_
 
-#endif // #define _DICTIONARY_H_
 
 
 

@@ -14,11 +14,14 @@ class BaseBufferStream : public Stream {
 		virtual int peek() { return -1; }
 		virtual void flush() {}
 
+    // inline uint8_t* bufPtr() { return buff; }
+    // inline size_t   size() { return sz; }
 		using Print::write;
 
-	protected:
+	public:
 		uint8_t *buff;
 		size_t len;
+		size_t sz;
 };
 
 #endif // __BaseBufferStream_H__

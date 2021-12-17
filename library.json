@@ -12,7 +12,7 @@
     "type": "git",
     "url": "https://github.com/arkhipenko/Dictionary.git"
   },
-  "version": "3.4.0",
+  "version": "3.5.0",
   "frameworks": "arduino",
   "platforms": "*"
 }

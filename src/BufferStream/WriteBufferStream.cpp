@@ -11,5 +11,6 @@ size_t WriteBufferStream::write(uint8_t value) {
 	}
 	*buff++ = value;
 	--len;
+  	++sz;
 	return 1;
 }
