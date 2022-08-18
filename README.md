@@ -351,6 +351,7 @@ will produce this:
 - **QueueArray** (modified) - by Efstathios Chatzikyriakidis ([here](https://playground.arduino.cc/Code/QueueArray/))
 - **Binary Trees in C++** - by Alex Allain ([here](https://www.cprogramming.com/tutorial/lesson18.html))
 - **Deletion of b-tree entries** article ([here](https://www.geeksforgeeks.org/binary-search-tree-set-2-delete/))
+- **Complete Binary Tree** article ([here](https://www.scaler.com/topics/complete-binary-tree/))
 
 That should be everyone. Apologies if I missed anyone - will update as soon as I remember. 
 
