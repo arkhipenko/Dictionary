@@ -58,7 +58,7 @@ You can control the maximum allowable length of both keys and values vis the fol
 ```c++
 d("ssid", "devices");
 d("pwd", "********");
-d("url", "http://ota.home.lan")
+d("url", "http://ota.home.lan");
 d("port", "80");
 d("plumless", "plumless");
 d("buckeroo", "buckeroo");  // OR:
