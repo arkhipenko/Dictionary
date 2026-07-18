@@ -2,7 +2,7 @@ name: Dictionary Unit Tests
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, testing ]
     paths:
       - 'examples/**'
       - 'src/**'
