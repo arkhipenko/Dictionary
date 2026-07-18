@@ -1,19 +1,27 @@
 #include "DictionaryDeclarations.h"
 
+#ifndef _DICTIONARY_H_
+#define _DICTIONARY_H_
+
 int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight) {
 
   size_t  vsize_final;
-  
+
+  // Initialize both buffer pointers up front. If an allocation fails below and
+  // the caller deletes this node, operator delete frees keybuf/valbuf - so they
+  // must never be left indeterminate.
+  keybuf = NULL;
+  valbuf = NULL;
+
   if ( aKeySize == 0 ) return NODEARRAY_ERR; // a key cannot be zero-length
   vsize = aValSize;
-  vsize_final = vsize + _DICT_EXTRA == 0 ? 1 : vsize + _DICT_EXTRA;
-  
+  vsize_final = (vsize + _DICT_EXTRA) == 0 ? 1 : vsize + _DICT_EXTRA;
+
 
   uintNN_t ks = ( aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize );
   ksize = aKeySize;
 
   // Now we will try to allocate memory to both char arrays
-  keybuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
     keybuf = (char*)ps_malloc(ks + _DICT_EXTRA);
@@ -24,7 +32,6 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
 
   if (!keybuf) return NODEARRAY_MEM;
 
-  valbuf = NULL;
 #if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
   if (psramFound()) {
     valbuf = (char*)ps_malloc(vsize_final);
@@ -35,6 +42,7 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
 
   if (!valbuf) {
     free(keybuf);
+    keybuf = NULL;
     return NODEARRAY_MEM;
   }
 
@@ -42,6 +50,12 @@ int8_t node::create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal,
   memset(keybuf, 0, ks);
   memcpy(keybuf, aKey, aKeySize);
   memcpy(valbuf, aVal, aValSize);
+#ifndef _DICT_COMPRESS
+  // Keep buffers NUL-terminated at write time so that read operations
+  // (search/key/value) never have to mutate the node to terminate a String.
+  keybuf[aKeySize] = 0;
+  valbuf[aValSize] = 0;
+#endif
 
   left = aLeft;
   right = aRight;
@@ -61,6 +75,9 @@ int8_t node::updateValue(const char* aVal, _DICT_VAL_TYPE aValSize) {
   if (aValSize <= vsize) { // new string fits into the old one - will just update
     memcpy(valbuf, aVal, aValSize);
     vsize = aValSize;
+#ifndef _DICT_COMPRESS
+    valbuf[aValSize] = 0;
+#endif
 
 #ifdef _LIBDEBUG_
     Serial.printf("NODE-UPDATEVALUE: updated value for key = %d\n", (uint32_t)keybuf);
@@ -90,7 +107,10 @@ int8_t node::updateValue(const char* aVal, _DICT_VAL_TYPE aValSize) {
 
   vsize = aValSize;
   memcpy(valbuf, aVal, vsize);
-  
+#ifndef _DICT_COMPRESS
+  valbuf[aValSize] = 0;
+#endif
+
 #ifdef _LIBDEBUG_
   Serial.printf("NODE-UPDATEVALUE: replaced value for key = %d\n", (uint32_t)key());
   printNode();
@@ -108,7 +128,10 @@ int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
   if (ks < ksize) { // new string fits into the old one - will just update
     memcpy(keybuf, aKey, aKeySize);
     ksize = aKeySize;
-    
+#ifndef _DICT_COMPRESS
+    keybuf[aKeySize] = 0;
+#endif
+
 #ifdef _LIBDEBUG_
     Serial.printf("NODE-UPDATEKEY: updated key = %d\n", (uint32_t)keybuf);
     printNode();
@@ -143,10 +166,80 @@ int8_t node::updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize) {
 
   ksize = aKeySize;
   memcpy(keybuf, aKey, ksize);
-  
+#ifndef _DICT_COMPRESS
+  keybuf[aKeySize] = 0;
+#endif
+
 #ifdef _LIBDEBUG_
   Serial.printf("NODE-UPDATEKEY: replaced keybuf = %d\n", (uint32_t)keybuf);
   printNode();
+#endif
+
+  return NODEARRAY_OK;
+}
+
+
+// Atomically replace both the key and the value. Any buffer that needs to grow
+// is allocated up front; if any allocation fails the node is left completely
+// unchanged and NODEARRAY_MEM is returned. Used by deleteNode when promoting the
+// in-order successor, where a partial update would corrupt the tree.
+int8_t node::updateKeyValue(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize) {
+  if ( aKeySize == 0 ) return NODEARRAY_ERR;
+  if ( aKeySize > _DICT_KEYLEN ) return NODEARRAY_ERR;
+  if ( aValSize > _DICT_VALLEN ) return NODEARRAY_ERR;
+
+  _DICT_KEY_TYPE ks = ( aKeySize < sizeof(uintNN_t) ? sizeof(uintNN_t) : aKeySize );
+
+  // Whether the incoming key/value fit in the current buffers. These mirror the
+  // (conservative) reuse rules of updateKey/updateValue.
+  bool needKeyAlloc = !(ks < ksize);
+  bool needValAlloc = !(aValSize <= vsize);
+
+  char* newKey = NULL;
+  char* newVal = NULL;
+
+  if ( needKeyAlloc ) {
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+    if (psramFound()) newKey = (char*)ps_malloc(ks + _DICT_EXTRA);
+#endif
+    if (!newKey) newKey = (char*)malloc(ks + _DICT_EXTRA);
+    if (!newKey) return NODEARRAY_MEM;
+  }
+
+  if ( needValAlloc ) {
+    size_t vsize_final = (aValSize + _DICT_EXTRA) == 0 ? 1 : aValSize + _DICT_EXTRA;
+#if defined(ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
+    if (psramFound()) newVal = (char*)ps_malloc(vsize_final);
+#endif
+    if (!newVal) newVal = (char*)malloc(vsize_final);
+    if (!newVal) {
+      if (newKey) free(newKey);   // roll back - node stays unchanged
+      return NODEARRAY_MEM;
+    }
+  }
+
+  // Commit: past this point nothing can fail.
+  if ( needKeyAlloc ) {
+    if (keybuf) free(keybuf);
+    keybuf = newKey;
+  }
+  else {
+    memset(keybuf, 0, ks);
+  }
+  memcpy(keybuf, aKey, aKeySize);
+  ksize = aKeySize;
+#ifndef _DICT_COMPRESS
+  keybuf[aKeySize] = 0;
+#endif
+
+  if ( needValAlloc ) {
+    if (valbuf) free(valbuf);
+    valbuf = newVal;
+  }
+  memcpy(valbuf, aVal, aValSize);
+  vsize = aValSize;
+#ifndef _DICT_COMPRESS
+  valbuf[aValSize] = 0;
 #endif
 
   return NODEARRAY_OK;
@@ -238,7 +331,10 @@ int8_t NodeArray::resize(const size_t s) {
 int8_t NodeArray::append(const node* i) {
   // check if the queue is full.
   if (isFull()) {
-    int8_t rc = resize(size + initialSize);
+    // Geometric growth: doubling keeps N appends at O(N) total copies rather than
+    // the O(N^2) of growing by a fixed increment each time.
+    size_t newSize = (size == 0) ? (initialSize ? initialSize : 1) : size * 2;
+    int8_t rc = resize(newSize);
     if (rc) return rc;
   }
 
@@ -331,6 +427,7 @@ size_t NodeArray::count() const {
 // ==== CONSTRUCTOR / DESTRUCTOR ==================================
 Dictionary::Dictionary(size_t init_size) {
   iRoot = NULL;
+  iError = DICTIONARY_OK;
 
   // This is unlikely to fail as practically no memory is allocated by the NodeArray
   // All memory allocation is delegated to the first append
@@ -397,11 +494,13 @@ int8_t Dictionary::insert(const char* keystr, const char* valstr) {
 
     if (rc) {
       delete iRoot;
+      iRoot = NULL;   // must not leave a dangling root - the next insert reads it
       return rc;
     }
     rc = Q->append(iRoot);
     if (rc) {
       delete iRoot;
+      iRoot = NULL;   // ditto: append failed, so the root is not tracked
       return rc;
     }
   }
@@ -428,11 +527,10 @@ String Dictionary::search(const char* keystr) {
         if (p) {
 #ifdef _DICT_COMPRESS
             decompressValue(p->valbuf, p->vsize);
-#else
-            iValTemp = p->valbuf;
-            iValTemp[p->vsize] = 0;
-#endif
             return String(iValTemp);
+#else
+            return String(p->valbuf);   // buffer is kept NUL-terminated at write time
+#endif
         }
     }
     return String("");
@@ -444,11 +542,10 @@ String Dictionary::key(size_t i) {
     if (p) {
 #ifdef _DICT_COMPRESS
         decompressKey(p->keybuf, p->ksize);
-#else
-        iKeyTemp = p->keybuf;
-        iKeyTemp[p->ksize] = 0;
-#endif
         return String(iKeyTemp);
+#else
+        return String(p->keybuf);   // buffer is kept NUL-terminated at write time
+#endif
     }
   }
   return String();
@@ -464,11 +561,10 @@ String Dictionary::value(size_t i) {
 #endif
 #ifdef _DICT_COMPRESS
             decompressValue(p->valbuf, p->vsize);
-#else
-            iValTemp = p->valbuf;
-            iValTemp[p->vsize] = 0;
-#endif
             return String(iValTemp);
+#else
+            return String(p->valbuf);   // buffer is kept NUL-terminated at write time
+#endif
         }
     }
     return String();
@@ -477,7 +573,11 @@ String Dictionary::value(size_t i) {
 
 // ==== DELETES =====================================================
 void Dictionary::destroy() {
-    destroy_tree(iRoot);
+    // Q references every node exactly once, so free them by walking the flat
+    // array instead of recursing the tree (which could overflow the stack on a
+    // degenerate/unbalanced tree).
+    size_t ct = Q ? Q->count() : 0;
+    for (size_t i = 0; i < ct; i++) delete (*Q)[i];
     iRoot = NULL;
     delete Q;
     Q = new NodeArray(initSize);
@@ -512,7 +612,9 @@ int8_t Dictionary::remove(const char* keystr) {
         Serial.printf("Found key to delete ptr: %u\n", (uint32_t)p);
 //        Serial.printf("Found key to delete str: %s\n", keystr);
 #endif
+        iError = DICTIONARY_OK;
         iRoot = deleteNode(iRoot, p->key(), iKeyTemp, iKeyLen);
+        if (iError != DICTIONARY_OK) return iError;   // e.g. OOM while promoting the successor
     }
     return DICTIONARY_OK;
 }
@@ -539,8 +641,14 @@ size_t Dictionary::jsize() {
     // minus one last comma
     size_t sz = 2 + ct * 6;
     for (size_t i = 0; i < ct; i++) {
-        sz += key(i).length();
+#ifdef _DICT_COMPRESS
+        sz += key(i).length();    // stored compressed - must decompress to measure
         sz += value(i).length();
+#else
+        node* p = (*Q)[i];        // stored verbatim - ksize/vsize are the string lengths
+        sz += p->ksize;
+        sz += p->vsize;
+#endif
     }
     return sz;
 }
@@ -551,8 +659,14 @@ size_t Dictionary::esize() {
     size_t sz = 0;
 
     for (size_t i = 0; i < ct; i++) {
+#ifdef _DICT_COMPRESS
         sz += key(i).length() + 1;
         sz += value(i).length() + 1;
+#else
+        node* p = (*Q)[i];
+        sz += p->ksize + 1;
+        sz += p->vsize + 1;
+#endif
     }
     return sz;
 }
@@ -567,9 +681,16 @@ String Dictionary::json() {
 
     size_t ct = count();
     for (size_t i = 0; i < ct; i++) {
+        String kk = key(i);
         String vv = value(i);
-        vv.replace("\"","\\\"");
-        s += '"' + key(i) + "\":\"" + vv + '"';
+        // Escape backslashes first, then double-quotes, in BOTH key and value,
+        // so keys/values containing " or \ produce valid JSON. (jsize() does not
+        // count these extra chars, but String grows on demand if needed.)
+        kk.replace("\\", "\\\\");
+        kk.replace("\"", "\\\"");
+        vv.replace("\\", "\\\\");
+        vv.replace("\"", "\\\"");
+        s += '"' + kk + "\":\"" + vv + '"';
         if (i < ct - 1) s += ',';
     }
     s += '}';
@@ -635,9 +756,8 @@ int8_t Dictionary::jload(Stream& json, int aNum) {
             if ( insideQoute ) {
               return DICTIONARY_QUOTE;
             }
-            if ( nextVerbatim ) {
-              return DICTIONARY_BCKSL;
-            }
+            // note: an escaped char (nextVerbatim) is handled at the top of the
+            // loop and can never reach here, so there is no DICTIONARY_BCKSL case
           }
           
 #ifdef _DICT_ASCII_ONLY
@@ -735,202 +855,124 @@ bool Dictionary::operator == (Dictionary& b) {
 // ==== PRIVATE METHODS ====================================================
 // ==== INSERTS ============================================================
 int8_t Dictionary::insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf) {
-    if (key < leaf->key()) {
-        if (leaf->left != NULL)
-            return insert(key, keystr, keylen, valstr, vallen, leaf->left);
-        else {
-            int8_t rc;
+    // Iterative descent (see search() for the stack-depth rationale). `goLeft`
+    // records which child link a new node belongs under once we hit an empty
+    // branch. We assign leaf->left / leaf->right directly (never take their
+    // address) so this stays correct with _DICT_PACK_STRUCTURES, where those
+    // members may be unaligned.
+    for (;;) {
+        uintNN_t lk = leaf->key();
+        bool goLeft;
 
-            leaf->left = new node;
-            if (!leaf->left) return DICTIONARY_MEM;
-            rc = leaf->left->create(keystr, keylen, valstr, vallen, NULL, NULL);
-            if (rc) {
-                delete leaf->left;
-                return rc;
+        if (key == lk) {
+            int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
+            if (cmpres == 0) {  // same key - just update the value in place
+                return (leaf->updateValue(valstr, vallen) != NODEARRAY_OK) ? DICTIONARY_MEM : DICTIONARY_OK;
             }
-            rc = Q->append(leaf->left);
-            if (rc) {
-                delete leaf->left;
-                return rc;
-            }
-        }
-    }
-    else if (key > leaf->key()) {
-        if (leaf->right != NULL)
-            return insert(key, keystr, keylen, valstr, vallen, leaf->right);
-        else {
-            int8_t rc;
-
-            leaf->right = new node;
-            if (!leaf->right) return DICTIONARY_MEM;
-            rc = leaf->right->create(keystr, keylen, valstr, vallen, NULL, NULL);
-            if (rc) {
-                delete leaf->right;
-                return rc;
-            }
-            rc = Q->append(leaf->right);
-            if (rc) {
-                delete leaf->right;
-                return rc;
-            }
-        }
-    }
-    else if (key == leaf->key()) {
-        int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
-        if (cmpres == 0) {
-            if (leaf->updateValue(valstr, vallen) != NODEARRAY_OK) return DICTIONARY_MEM;
+            goLeft = (cmpres < 0);
         }
         else {
-
-            if (cmpres < 0) {
-                if (leaf->left != NULL)
-                    return insert(key, keystr, keylen, valstr, vallen, leaf->left);
-                else {
-                    int8_t rc;
-
-                    leaf->left = new node;
-                    if (!leaf->left) return DICTIONARY_MEM;
-                    rc = leaf->left->create(keystr, keylen, valstr, vallen, NULL, NULL);
-                    if (rc) {
-                        delete leaf->left;
-                        return rc;
-                    }
-                    rc = Q->append(leaf->left);
-                    if (rc) {
-                        delete leaf->left;
-                        return rc;
-                    }
-                }
-            }
-            else if (cmpres > 0) {
-                if (leaf->right != NULL)
-                    return insert(key, keystr, keylen, valstr, vallen, leaf->right);
-                else {
-                    int8_t rc;
-
-                    leaf->right = new node;
-                    if (!leaf->right) return DICTIONARY_MEM;
-                    rc = leaf->right->create(keystr, keylen, valstr, vallen, NULL, NULL);
-                    if (rc) {
-                        delete leaf->right;
-                        return rc;
-                    }
-                    rc = Q->append(leaf->right);
-                    if (rc) {
-                        delete leaf->right;
-                        return rc;
-                    }
-                }
-            }
+            goLeft = (key < lk);
         }
+
+        node* child = goLeft ? leaf->left : leaf->right;
+        if (child != NULL) {  // branch occupied - keep descending
+            leaf = child;
+            continue;
+        }
+
+        // Empty branch: build the new child and only link it in after Q->append
+        // succeeds, so a failure never leaves a dangling child pointer behind.
+        node* n = new node;
+        if (!n) return DICTIONARY_MEM;
+        int8_t rc = n->create(keystr, keylen, valstr, vallen, NULL, NULL);
+        if (rc) { delete n; return rc; }
+        rc = Q->append(n);
+        if (rc) { delete n; return rc; }
+        if (goLeft) leaf->left = n; else leaf->right = n;
+        return DICTIONARY_OK;
     }
-    return DICTIONARY_OK;
 }
 
 
 // ==== SEARCH ===========================================================================
 node* Dictionary::search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen) {
-    if (leaf != NULL) {
-        if ( key == leaf->key() ) {
+    // Iterative to avoid O(tree-depth) recursion, which can overflow the stack
+    // on a degenerate/unbalanced tree (e.g. keys inserted in sorted order).
+    while (leaf != NULL) {
+        uintNN_t lk = leaf->key();
+        if ( key == lk ) {
             int cmpres = keylen != leaf->ksize ? keylen - leaf->ksize : memcmp(leaf->keybuf, keystr, keylen);
-
-            if (cmpres == 0) {
-                return leaf;
-            }
-            else {
-                if ( cmpres < 0 )
-                    return search(key, leaf->left, keystr, keylen);
-                else
-                    return search(key, leaf->right, keystr, keylen);
-            }
+            if (cmpres == 0) return leaf;
+            leaf = ( cmpres < 0 ) ? leaf->left : leaf->right;
         }
         else {
-            if ( key < leaf->key() )
-                return search(key, leaf->left, keystr, keylen);
-            else
-                return search(key, leaf->right, keystr, keylen);
+            leaf = ( key < lk ) ? leaf->left : leaf->right;
         }
     }
-    else return NULL;
+    return NULL;
 }
 
 
 // ==== DELETES ==========================================================================
-void Dictionary::destroy_tree(node* leaf) {
-  if (leaf != NULL) {
-    destroy_tree(leaf->left);
-    destroy_tree(leaf->right);
-    delete leaf; // node destructor takes care of the key and value strings
-    leaf = NULL;
-  }
-}
-
-
+// Iterative BST delete (no recursion - see search() for the stack-depth rationale).
+// Returns the new root of the (sub)tree. On an out-of-memory failure while promoting
+// the in-order successor, the tree is left unchanged and iError is set.
 node* Dictionary::deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen) {
-  if (root == NULL) return root;
+  // Locate the target node and its parent.
+  node* parent = NULL;
+  node* cur    = root;
 
-  if (key < root->key() ) {
-    root->left = deleteNode(root->left, key, keystr, keylen);
-  }
-  // If the key to be deleted is greater than the root's key,
-  // then it lies in right subtree
-  else if (key > root->key() ) {
-    root->right = deleteNode(root->right, key, keystr, keylen);
-  }
-  // if key is same as root's key, then This is the node
-  // to be deleted
-  else {
-    int cmpres = (keylen != root->ksize) ? keylen - root->ksize : memcmp(root->keybuf, keystr, keylen);
-    if (cmpres == 0 ) {
-      // node with only one child or no child
-      if (root->left == NULL) {
-        node* temp = root->right;
-        Q->remove(root);
-        delete root;
-        root = NULL;
-        return temp;
-      }
-      else if (root->right == NULL) {
-        node* temp = root->left;
-        Q->remove(root);
-        delete root;
-        root = NULL;
-        return temp;
-      }
-
-      // node with two children: Get the in-order successor (smallest
-      // in the right subtree)
-      node* temp = minValueNode(root->right);
-
-      // Copy the in-order successor's content to this node
-      root->updateKey(temp->keybuf, temp->ksize);
-      root->updateValue(temp->valbuf, temp->vsize);
-
-      // Delete the in-order successor
-      root->right = deleteNode(root->right, temp->key(), temp->keybuf, temp->ksize);
+  while (cur != NULL) {
+    uintNN_t ck = cur->key();
+    int cmpres;
+    if (key == ck) {
+      cmpres = (keylen != cur->ksize) ? (int)keylen - (int)cur->ksize : memcmp(cur->keybuf, keystr, keylen);
+      if (cmpres == 0) break;   // found it
     }
     else {
-        if ( cmpres < 0 ) {
-            root->left = deleteNode(root->left, key, keystr, keylen);
-        }
-        // If the key to be deleted is greater than the root's key,
-        // then it lies in right subtree
-        else if ( cmpres > 0 ) {
-            root->right = deleteNode(root->right, key, keystr, keylen);
-        }
+      cmpres = (key < ck) ? -1 : 1;
     }
+    parent = cur;
+    cur = (cmpres < 0) ? cur->left : cur->right;
   }
+
+  if (cur == NULL) return root;   // key not present - tree unchanged
+
+  // Node with two children: promote the in-order successor (leftmost node of the
+  // right subtree), then delete that successor (which has at most a right child).
+  if (cur->left != NULL && cur->right != NULL) {
+    node* succParent = cur;
+    node* succ       = cur->right;
+    while (succ->left != NULL) { succParent = succ; succ = succ->left; }
+
+    // Copy the successor's key/value into cur atomically. If it fails (OOM),
+    // leave the whole tree intact and surface the error via iError.
+    if (cur->updateKeyValue(succ->keybuf, succ->ksize, succ->valbuf, succ->vsize) != NODEARRAY_OK) {
+      iError = DICTIONARY_MEM;
+      return root;
+    }
+
+    node* succChild = succ->right;
+    if (succParent->left == succ) succParent->left = succChild;
+    else                          succParent->right = succChild;
+    Q->remove(succ);
+    delete succ;
+    return root;
+  }
+
+  // Node with zero or one child: splice it out.
+  node* child = (cur->left != NULL) ? cur->left : cur->right;   // may be NULL
+  if (parent == NULL) {           // deleting the root of this (sub)tree
+    Q->remove(cur);
+    delete cur;
+    return child;                 // child becomes the new root
+  }
+  if (parent->left == cur) parent->left = child;
+  else                     parent->right = child;
+  Q->remove(cur);
+  delete cur;
   return root;
-}
-
-
-node* Dictionary::minValueNode(node* n) {
-  node* current = n;
-
-  /* loop down to find the leftmost leaf */
-  while (current && current->left) current = current->left;
-
-  return current;
 }
 
 
@@ -1033,9 +1075,7 @@ void Dictionary::printNode(node* root) {
 }
 #endif  //  _LIBDEBUG_
 
-
-
-
+#endif // #define _DICTIONARY_H_
 
 
 

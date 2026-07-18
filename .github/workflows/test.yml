@@ -1,0 +1,70 @@
+name: Dictionary Unit Tests
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'examples/**'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'examples/**'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/test.yml'
+  workflow_dispatch:
+
+jobs:
+  # Native (host) Google Test suites. The library is header-only in test mode,
+  # so a mock tests/Arduino.h lets it compile off-device. All suites (default
+  # config, CRC 16/64, packed, long length types, SHOCO/SMAZ compression, and
+  # malloc fault injection) are defined in tests/CMakeLists.txt and run via ctest.
+  unit-tests:
+    name: Unit Tests (Google Test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgtest-dev
+
+      - name: Configure
+        run: cmake -S tests -B tests/build
+
+      - name: Build
+        run: cmake --build tests/build -j"$(nproc)"
+
+      - name: Run tests
+        run: ctest --test-dir tests/build --output-on-failure
+
+  # Same suites rebuilt with AddressSanitizer + UndefinedBehaviorSanitizer to
+  # catch invalid frees, use-after-free, and UB on the (fault-injected) error
+  # paths - the class of bug fixed in v3.6.0.
+  unit-tests-sanitized:
+    name: Unit Tests (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgtest-dev
+
+      - name: Configure (sanitized)
+        run: cmake -S tests -B tests/build-asan -DDICT_SANITIZE=ON
+
+      - name: Build
+        run: cmake --build tests/build-asan -j"$(nproc)"
+
+      - name: Run tests
+        run: ctest --test-dir tests/build-asan --output-on-failure
+        env:
+          ASAN_OPTIONS: detect_leaks=1

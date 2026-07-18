@@ -95,12 +95,50 @@
    
   v3.3.0:
     2021-05-27 - update: json import does not require quotation marks (still creates strings)
-   
+
+  v3.6.0:
+    2026-07-17 - update: PlatformIO / non-Arduino-IDE builds now supported via the
+                 bundled Dictionary.cpp gated by #define _DICT_HEADER_AND_CPP,
+                 mirroring the TaskScheduler approach. Include DictionaryDeclarations.h
+                 in your code and define _DICT_HEADER_AND_CPP as a build flag; no need
+                 to hand-create a Dictionary.cpp anymore.
+               - bug fix: node::create left valbuf uninitialized on a failed key
+                 allocation, so a subsequent delete freed a garbage pointer (crash
+                 on out-of-memory). Both buffers are now cleared up front.
+               - bug fix: deleteNode ignored updateKey/updateValue failures while
+                 promoting the in-order successor, corrupting the tree on OOM. It
+                 now uses an atomic node::updateKeyValue and remove() returns the
+                 error code.
+               - bug fix: on a failed NodeArray append the new child was deleted but
+                 still linked into the tree (dangling pointer). It is now linked only
+                 after the append succeeds.
+               - bug fix: on a failed root-node creation/append, insert() deleted the
+                 node but left iRoot dangling, so the next insert dereferenced freed
+                 memory. iRoot is now reset to NULL on that failure path.
+               - test: added native Google Test suites (tests/) and CI (unit tests +
+                 ASan/UBSan + example builds), mirroring the TaskScheduler harness.
+               - update: search/insert/deleteNode/destroy are now iterative to avoid
+                 stack overflow on a deep/unbalanced tree (e.g. sorted-order inserts).
+               - update: NodeArray grows geometrically (was a fixed increment).
+               - update: json() now escapes '"' and '\' in both keys and values.
+               - update: read operations no longer mutate node buffers (non-compressed
+                 builds); jsize()/esize() read node sizes directly.
+
  */
 
 
-#ifndef _DICTIONARY_H_
-#define _DICTIONARY_H_
+// The following "define" controls how the library is compiled and should be set
+// as a build flag (e.g. platformio.ini build_flags), NOT in the sketch, because
+// the bundled Dictionary.cpp is a separate translation unit:
+//
+// #define _DICT_HEADER_AND_CPP   // PlatformIO style: separate header and CPP file.
+//                                // Include <DictionaryDeclarations.h> in your code;
+//                                // the bundled Dictionary.cpp compiles the
+//                                // implementation exactly once. Without this define
+//                                // (Arduino IDE style) just #include <Dictionary.h>.
+
+#ifndef _DICTIONARYDECLARATIONS_H_
+#define _DICTIONARYDECLARATIONS_H_
 
 #include <Arduino.h>
 
@@ -205,7 +243,6 @@ extern "C" {
 #endif
 
 
-#include <Arduino.h>
 #include "BufferStream/BufferStream.h"
 
 
@@ -262,6 +299,8 @@ class node {
     int8_t      create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight);
     int8_t      updateValue(const char* aVal, _DICT_VAL_TYPE aValSize);
     int8_t      updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize);
+    // Atomically replace both key and value; on failure the node is left unchanged.
+    int8_t      updateKeyValue(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize);
 
 #ifdef _LIBDEBUG_
     void printNode();
@@ -405,9 +444,7 @@ class Dictionary {
     int8_t              insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf);
     node*               search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen);
 
-    void                destroy_tree(node* leaf);
     node*               deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen);
-    node*               minValueNode(node* n);
 
     uintNN_t            crc(const void* data, size_t n_bytes);
 
@@ -427,9 +464,11 @@ class Dictionary {
     _DICT_KEY_TYPE      iKeyLen;
     char*               iValTemp;
     _DICT_VAL_TYPE      iValLen;
+
+    int8_t              iError;   // out-of-band error from deleteNode (which returns node*)
 };
 
-#endif // #define _DICTIONARY_H_
+#endif // #define _DICTIONARYDECLARATIONS_H_
 
 
 

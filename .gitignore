@@ -1,0 +1,13 @@
+# CMake / native test build output
+tests/build/
+tests/build-*/
+build/
+
+# Editor / OS
+.vscode/
+*.o
+*.a
+*.out
+
+CLAUDE.md
+.claude/

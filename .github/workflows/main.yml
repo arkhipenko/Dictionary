@@ -1,0 +1,133 @@
+name: Dictionary Examples Build
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'examples/**'
+      - 'src/**'
+      - '.github/workflows/main.yml'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'examples/**'
+      - 'src/**'
+      - '.github/workflows/main.yml'
+  workflow_dispatch:
+
+jobs:
+  # Compile the example sketches on real cores with the Arduino CLI (the library
+  # doubles as its own on-device functional test - it must keep the examples
+  # compiling). Dictionary leans on String and heap, so the ESP cores are the
+  # primary targets.
+  ArduinoIDE_ESP32:
+    strategy:
+      fail-fast: false
+      matrix:
+        fqbn: ["esp32:esp32:esp32"]
+        example:
+          - "Dict_Example01"
+          - "Dict_Example02_ESP32_PSRAM"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+      - name: Install platform
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+      - name: Install repo as library
+        run: |
+          mkdir -p "$HOME/Arduino/libraries"
+          ln -s "$PWD" "$HOME/Arduino/libraries/Dictionary"
+      - name: Compile ${{ matrix.example }}
+        run: arduino-cli compile --fqbn ${{ matrix.fqbn }} ./examples/${{ matrix.example }} --warnings more
+
+  # ESP8266 is memory-constrained, so it only gets a minimal basic-usage smoke
+  # sketch (insert/search/count/json/remove) rather than the full example.
+  ArduinoIDE_ESP8266_Basic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+      - name: Install platform
+        run: |
+          arduino-cli core update-index --additional-urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266 --additional-urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+      - name: Install repo as library
+        run: |
+          mkdir -p "$HOME/Arduino/libraries"
+          ln -s "$PWD" "$HOME/Arduino/libraries/Dictionary"
+      - name: Generate a minimal basic sketch
+        run: |
+          SK="$RUNNER_TEMP/DictBasicSmoke"
+          mkdir -p "$SK"
+          cat > "$SK/DictBasicSmoke.ino" <<'EOF'
+          #include <Dictionary.h>
+
+          Dictionary d;
+
+          void setup() {
+            Serial.begin(115200);
+            d("ssid", "devices");
+            d.insert("port", "80");
+            Serial.println(d["ssid"]);
+            Serial.println(d.count());
+            Serial.println(d.json());
+            d.remove("port");
+          }
+          void loop() {}
+          EOF
+      - name: Compile basic sketch
+        run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 "$RUNNER_TEMP/DictBasicSmoke" --warnings more
+
+  # Verify the PlatformIO / non-Arduino-IDE consumption path: include
+  # DictionaryDeclarations.h in user code and let the bundled Dictionary.cpp
+  # compile the implementation once, gated by the _DICT_HEADER_AND_CPP build flag.
+  PlatformIO_HeaderAndCpp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+      - name: Generate a minimal PlatformIO project using the split-header mode
+        run: |
+          PROJ="$RUNNER_TEMP/pio_dict"
+          mkdir -p "$PROJ/src" "$PROJ/lib"
+          ln -s "$PWD" "$PROJ/lib/Dictionary"
+          cat > "$PROJ/platformio.ini" <<'EOF'
+          [env:esp32dev]
+          platform = espressif32
+          board = esp32dev
+          framework = arduino
+          build_flags = -D _DICT_HEADER_AND_CPP
+          EOF
+          cat > "$PROJ/src/main.cpp" <<'EOF'
+          #include <Arduino.h>
+          #include <DictionaryDeclarations.h>   // declarations only
+
+          Dictionary d;
+          void setup() {
+            d("ssid", "devices");
+            d.insert("port", "80");
+            Serial.begin(115200);
+            Serial.println(d["ssid"]);
+            Serial.println(d.json());
+          }
+          void loop() {}
+          EOF
+      - name: Compile
+        run: |
+          cd "$RUNNER_TEMP/pio_dict"
+          pio run -e esp32dev
