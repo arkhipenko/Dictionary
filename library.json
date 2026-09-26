@@ -1,6 +1,6 @@
 {
   "name":"Dictionary",
-  "description":"A dictionary data type with a fast b-tree based search",
+  "description":"A key-value dictionary for microcontrollers: typed values, insertion order, hash index, JSON, optional compression",
   "keywords":"hash,dictionary,config,json,parse",
   "authors":
   {
@@ -12,7 +12,8 @@
     "type": "git",
     "url": "https://github.com/arkhipenko/Dictionary.git"
   },
-  "version": "3.6.0",
+  "version": "4.0.0",
+  "license": "BSD-3-Clause",
   "frameworks": "arduino",
   "platforms": "*"
 }

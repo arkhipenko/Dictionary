@@ -11,3 +11,11 @@ build/
 
 CLAUDE.md
 .claude/
+# Claude / Design Central
+.dc/
+.mcp.json
+claude-start
+CLAUDE.local.md
+
+# Scratch folders
+_*/

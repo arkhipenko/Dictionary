@@ -1,25 +1,14 @@
 /*
   Implementation of the Dictionary data type
-  for String key-value pairs, based on
-  CRC32/64 has keys and binary tree search
+  for key-value pairs: an insertion-ordered entry array
+  with an optional hash index, typed values and optional value compression
 
   ---
 
-  Copyright (C) Anatoli Arkhipenko, 2020
+  Copyright (c) 2020-2026 Anatoli Arkhipenko
   All rights reserved.
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program. If not, see <http://www.gnu.org/licenses/>.
+  Distributed under the BSD 3-Clause License. See LICENSE.txt.
 
   ---
 
@@ -124,6 +113,57 @@
                - update: read operations no longer mutate node buffers (non-compressed
                  builds); jsize()/esize() read node sizes directly.
 
+  v3.6.1:
+    2026-09-26 - bug fix: the implicit copy constructor made a shallow copy, so
+                 Dictionary b(a) or passing a Dictionary by value double freed. Copy
+                 construction is now deleted (a constructor cannot report an allocation
+                 failure); move construction and move assignment are supported.
+               - bug fix: d = d emptied the dictionary. Assignment now ignores
+                 self-assignment and returns Dictionary& (was void).
+               - bug fix: a compressed key or value that did not fit had its length
+                 truncated to the length type (256 became 0 with default settings) and
+                 was stored empty with a success code. The full-width length is now
+                 checked first and DICTIONARY_OOB returned. A compressed form must fit
+                 in _DICT_KEYLEN / _DICT_VALLEN bytes (was one byte more on insert only).
+               - bug fix: split-header builds (_DICT_HEADER_AND_CPP) failed to link a call
+                 to remove(const String&), which was declared inline.
+               - bug fix: compressed builds did not check the scratch-buffer allocations.
+                 They are now allocated on first use and a failure returns an error.
+               - bug fix: destroy() allocated a new NodeArray and crashed on the next insert
+                 if that failed. NodeArray is now a member of Dictionary; neither the
+                 constructor nor destroy() allocates.
+               - bug fix: node::operator new returned NULL without being noexcept
+                 (undefined behavior). It is now noexcept, and node frees its buffers in
+                 a destructor instead of in operator delete.
+
+
+  v4.0.0:
+    2026-09-26 - redesign. Storage: one insertion-ordered array of entries, each entry a
+                 single allocation holding type, lengths, key and value, plus an optional
+                 hash index (open addressing) built once _DICT_INDEX_MIN pairs are stored.
+                 The binary tree, NodeArray, key-prefix integer and _DICT_CRC are gone.
+                 remove() keeps the order of the remaining pairs and never allocates.
+               - feature: typed values (string, int32, float, bool, null; int64 and double
+                 with _DICT_WIDE_NUMBERS) with set()/getInt()/getFloat()/getBool()/
+                 getString()/peek()/has()/type(). Typed getters convert text on read unless
+                 _DICT_STRICT_GET. jload() stores values as given; _DICT_TYPED_JSON stores
+                 bare numbers, true/false and null typed. json() writes typed values unquoted.
+               - feature: one built-in value codec (_DICT_COMPRESS), values only, applied only
+                 when it makes the value smaller, no scratch buffers. SHOCO and SMAZ removed.
+               - feature: jload() rewritten: empty values, trailing comments, a last pair
+                 without a separator, standard escapes (including \uXXXX), token length cap,
+                 nested objects/arrays rejected, insert errors propagated, _DICT_ASCII_ONLY
+                 fixed. BufferStream removed (jload reads a Stream directly).
+               - feature: reserve(n), json(Print&), keyAt()/typeAt(), move semantics, const
+                 read methods, jsize() is exact.
+               - deprecated (compile-time warning, silenced by _DICT_NO_DEPRECATION_WARNINGS):
+                 insert(), search(), d(key, value), d(key), d(i), d[i]. They keep 3.x behavior.
+               - removed build flags, accepted with #warning: _DICT_CRC, _DICT_PACK_STRUCTURES,
+                 _DICT_COMPRESS_SHOCO and _DICT_COMPRESS_SMAZ (both now mean _DICT_COMPRESS).
+               - license: BSD 3-Clause in every file, as in LICENSE.txt (this header used to
+                 say GPL v3).
+               - example: Dict_Benchmark, an on-device benchmark of every operation.
+
  */
 
 
@@ -142,336 +182,258 @@
 
 #include <Arduino.h>
 
+
+// ==== 3.x build flags that no longer apply =====================================
+#ifdef _DICT_CRC
+#warning "Dictionary 4.0: _DICT_CRC has no effect (keys are hashed) and is ignored"
+#endif
+
+#ifdef _DICT_PACK_STRUCTURES
+#warning "Dictionary 4.0: _DICT_PACK_STRUCTURES has no effect (entries are byte-packed) and is ignored"
+#endif
+
+#if defined(_DICT_COMPRESS_SHOCO) || defined(_DICT_COMPRESS_SMAZ)
+#warning "Dictionary 4.0: SHOCO and SMAZ were removed; this flag now enables the built-in value codec (_DICT_COMPRESS)"
+#ifndef _DICT_COMPRESS
+#define _DICT_COMPRESS
+#endif
+#endif
+
+
+// ==== Limits ===================================================================
+// Maximum key and value text lengths in bytes. The length fields use the
+// smallest unsigned type that holds them.
 #ifndef _DICT_KEYLEN
 #define _DICT_KEYLEN 64
 #endif
-
-#if _DICT_KEYLEN < UINT8_MAX
-#define _DICT_KEY_TYPE  uint8_t
-#endif
-
-#if _DICT_KEYLEN >= UINT8_MAX && _DICT_KEYLEN < UINT16_MAX
-#define _DICT_KEY_TYPE  uint16_t
-#endif
-
-#if _DICT_KEYLEN >= UINT16_MAX && _DICT_KEYLEN < UINT32_MAX
-#define _DICT_KEY_TYPE  uint32_t
-#endif
-
-// What is the likelihood of a microcontroller having that much memory?
-#if _DICT_KEYLEN >= UINT32_MAX
-#define _DICT_KEY_TYPE  uint64_t
-#endif
-
-
 
 #ifndef _DICT_VALLEN
 #define _DICT_VALLEN 254
 #endif
 
-#if _DICT_VALLEN < UINT8_MAX
-#define _DICT_VAL_TYPE  uint8_t
+#if _DICT_KEYLEN < 1
+#error "_DICT_KEYLEN must be at least 1"
 #endif
 
-#if _DICT_VALLEN >= UINT8_MAX && _DICT_VALLEN < UINT16_MAX
-#define _DICT_VAL_TYPE  uint16_t
+#if _DICT_KEYLEN <= 255
+#define _DICT_KLEN_T  uint8_t
+#elif _DICT_KEYLEN <= 65535
+#define _DICT_KLEN_T  uint16_t
+#else
+#define _DICT_KLEN_T  uint32_t
 #endif
 
-#if _DICT_VALLEN >= UINT16_MAX && _DICT_VALLEN < UINT32_MAX
-#define _DICT_VAL_TYPE  uint32_t
+// The value length field also holds the size of a numeric payload (up to 8).
+#if _DICT_VALLEN <= 255
+#define _DICT_VLEN_T  uint8_t
+#elif _DICT_VALLEN <= 65535
+#define _DICT_VLEN_T  uint16_t
+#else
+#define _DICT_VLEN_T  uint32_t
 #endif
 
-#if _DICT_VALLEN >= UINT32_MAX
-#define _DICT_VAL_TYPE  uint64_t
+// Maximum number of pairs. Selects the width of a hash index slot.
+#ifndef _DICT_MAX_ENTRIES
+#define _DICT_MAX_ENTRIES 65534
 #endif
 
-#define NODEARRAY_OK    0
-#define NODEARRAY_ERR   (-1)
-#define NODEARRAY_MEM   (-2)
+#if _DICT_MAX_ENTRIES <= 65534
+#define _DICT_SLOT_T  uint16_t
+#else
+#define _DICT_SLOT_T  uint32_t
+#endif
 
+// Pair count at which the hash index is built. 0 = never (lookups scan).
+#ifndef _DICT_INDEX_MIN
+#define _DICT_INDEX_MIN 32
+#endif
+
+// Decimal places used when a float is rendered as text (trailing zeros trimmed).
+#ifndef _DICT_FLOAT_DECIMALS
+#define _DICT_FLOAT_DECIMALS 6
+#endif
+
+#ifdef _DICT_NO_DEPRECATION_WARNINGS
+#define _DICT_DEPRECATED(msg)
+#else
+#define _DICT_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#endif
+
+
+// ==== Result codes ==============================================================
 #define DICTIONARY_OK         0
-#define DICTIONARY_ERR      (-1)
-#define DICTIONARY_MEM      (-2)
-#define DICTIONARY_OOB      (-3)
+#define DICTIONARY_ERR      (-1)    // invalid argument (e.g. key or value length)
+#define DICTIONARY_MEM      (-2)    // memory allocation failed
+#define DICTIONARY_OOB      (-3)    // does not fit (token longer than the limit, too many pairs)
 
-#define DICTIONARY_COMMA    (-20)
-#define DICTIONARY_COLON    (-21)
-#define DICTIONARY_QUOTE    (-22)
-#define DICTIONARY_BCKSL    (-23)
-#define DICTIONARY_FMT      (-25)
-#define DICTIONARY_EOF      (-99)
-
-
-// There is no CRC calculation anymore, but the naming stuck
-#ifndef _DICT_CRC
-#define _DICT_CRC  32
-#endif
-
-#if !( _DICT_CRC == 16 || _DICT_CRC == 32 || _DICT_CRC == 64)
-#define _DICT_CRC  32
-#endif
-
-#if _DICT_CRC == 16
-#define uintNN_t uint16_t
-#endif
-
-#if _DICT_CRC == 32
-#define uintNN_t uint32_t
-#endif
-
-#if _DICT_CRC == 64
-#define uintNN_t uint64_t
-#endif
-
-#if defined(_DICT_COMPRESS_SHOCO)
-
-#define _DICT_COMPRESS
-#define _DICT_EXTRA 0
-#include "shoco/shoco.h"
-
-#elif defined (_DICT_COMPRESS_SMAZ)
-
-#define _DICT_COMPRESS
-#define _DICT_EXTRA 0
-extern "C" {
-#include "smaz/smaz.h"
-}
-#endif
-
-#ifndef _DICT_EXTRA
-#define _DICT_EXTRA 1
-#endif
+#define DICTIONARY_COMMA    (-20)   // jload: expected a separator after a value
+#define DICTIONARY_COLON    (-21)   // jload: expected ':' after a key
+#define DICTIONARY_QUOTE    (-22)   // jload: newline inside a quoted string
+#define DICTIONARY_BCKSL    (-23)   // jload: invalid escape sequence
+#define DICTIONARY_FMT      (-25)   // jload: malformed input
+#define DICTIONARY_EOF      (-99)   // jload: input ended early
 
 
-#include "BufferStream/BufferStream.h"
-
-
-#ifdef _DICT_PACK_STRUCTURES
-class __attribute((__packed__)) node {
-#else
-class node {
-#endif
-  public:
-
-    void* operator new(size_t size) {
-
-      void* p = NULL;
-      if ( size ) {
-#if defined (ARDUINO_ARCH_ESP32) && defined(_DICT_USE_PSRAM)
-        if (psramFound()) {
-          p = ps_malloc(size);
-        }
-#endif
-        if (!p) p = malloc(size);
-#ifdef _LIBDEBUG_
-        Serial.printf("NODE-NEW: size=%d (%d) k/v sizes=%d, %d, ptr=%u\n", size, sizeof(node), sizeof(_DICT_KEY_TYPE), sizeof(_DICT_VAL_TYPE), (uint32_t)p);
-#endif    
-      }
-      return p;
-    }
-
-    void operator delete(void* p) {
-      if ( p == NULL ) return;
-      node* n = (node*)p;
-
-      // Delete key/value strings
-      if ( n->keybuf ) { 
-        free(n->keybuf);
-        n->keybuf = NULL;
-      }
-      if ( n->valbuf ) {
-          free(n->valbuf);
-          n->valbuf = NULL;
-      }
-      free(p);
-#ifdef _LIBDEBUG_
-      Serial.printf("NODE-DELETE: Freed memory block %u\n", (uint32_t)p);
-#endif    
-    }
-
-    uintNN_t    key() {
-        uintNN_t k = 0;
-        
-        memcpy((void*)&k, keybuf, ksize < sizeof(uintNN_t) ? ksize : sizeof(uintNN_t));
-        return k;
-    }
-    
-    int8_t      create(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize, node* aLeft, node* aRight);
-    int8_t      updateValue(const char* aVal, _DICT_VAL_TYPE aValSize);
-    int8_t      updateKey(const char* aKey, _DICT_KEY_TYPE aKeySize);
-    // Atomically replace both key and value; on failure the node is left unchanged.
-    int8_t      updateKeyValue(const char* aKey, _DICT_KEY_TYPE aKeySize, const char* aVal, _DICT_VAL_TYPE aValSize);
-
-#ifdef _LIBDEBUG_
-    void printNode();
-#endif
-    char*           keybuf;
-    _DICT_KEY_TYPE  ksize;
-    char*           valbuf;
-    _DICT_VAL_TYPE  vsize;
-    node*           left;
-    node*           right;
-};
-
-#ifdef _DICT_PACK_STRUCTURES
-class __attribute((__packed__)) NodeArray {
-#else
-class NodeArray {
-#endif   
-  public:
-    // init the queue (constructor).
-    NodeArray(size_t init_size = 10);
-
-    // clear the queue (destructor).
-    ~NodeArray();
-
-    // add an item to the queue.
-    int8_t append(const node* i);
-
-    // remove an item from the queue.
-    void remove(const node* i);
-
-    // check if the queue is empty.
-    bool isEmpty() const;
-
-    //    // get the number of items in the queue.
-    size_t count() const;
-
-    // check if the queue is full.
-    bool isFull() const;
-
-
-    node* operator [] (const size_t i) {
-      if (i >= items) {
-        //        exit ("QUEUE: Out of bounds");
-        return NULL;
-      }
-      return contents[i];
-    }
-
-#ifdef _LIBDEBUG_
-    void printArray();
-#endif
-
-  private:
-    // resize the size of the queue.
-    int8_t resize(const size_t s);
-
-    // exit report method in case of error.
-    //    void exit (const char * m) const;
-
-    // the initial size of the queue.
-    size_t initialSize;
-
-    node** contents;    // the array of the queue.
-
-    size_t size;        // the size of the queue.
-    size_t items;       // the number of items of the queue.
-    size_t tail;        // the tail of the queue.
+// ==== Value types ===============================================================
+enum DictType : uint8_t {
+  DICT_NONE   = 0,    // key not present
+  DICT_STR    = 1,    // text
+  DICT_INT    = 2,    // int32_t
+  DICT_FLOAT  = 3,    // float
+  DICT_BOOL   = 4,
+  DICT_NULL   = 5,
+  DICT_INT64  = 6,    // int64_t  (_DICT_WIDE_NUMBERS)
+  DICT_DOUBLE = 7     // double   (_DICT_WIDE_NUMBERS)
 };
 
 
-
-#ifdef _DICT_PACK_STRUCTURES
-class __attribute((__packed__)) Dictionary {
-#else
 class Dictionary {
-#endif
   public:
-    Dictionary(size_t init_size = 10);
+    // A key given as const char* or String. Lets every method accept both
+    // without doubling its overloads; the pointer is only used during the call.
+    class Key {
+      public:
+        Key(const char* s) : p(s) {}
+        Key(const String& s) : p(s.c_str()) {}
+        // Flash keys are not supported (they are not addressable as RAM on every
+        // core). Use String(F("key")).
+        Key(const __FlashStringHelper* s) = delete;
+        const char* p;
+    };
+
+    explicit Dictionary(size_t init_size = 10);
     ~Dictionary();
 
-    inline int8_t       insert(String keystr, int32_t val) { return insert( keystr, String(val) ); }
-    inline int8_t       insert(String keystr, float   val) { return insert( keystr, String(val) ); }
-    inline int8_t       insert(String keystr, double  val) { return insert( keystr, String(val) ); }
-    inline int8_t       insert(String keystr, String  valstr)  { return insert( keystr.c_str(), valstr.c_str() ); }
-    int8_t              insert(const char* keystr, const char* valstr);
-    
-    inline String       search(const String& keystr) { return search(keystr.c_str()); }
-    String              search(const char* keystr);
-    String              key(size_t i);
-    String              value(size_t i);
+    // Copy construction is not supported: a constructor cannot report an
+    // allocation failure. Copy with assignment or merge(), which can.
+    Dictionary(const Dictionary&) = delete;
+    Dictionary(Dictionary&& other) noexcept;
+    Dictionary& operator = (Dictionary&& other) noexcept;
+    Dictionary& operator = (const Dictionary& other);   // errors are not reported; see merge()
 
-    void                destroy();
-    inline int8_t       remove(const String& keystr);
-    int8_t              remove(const char* keystr);
+    // ---- write --------------------------------------------------------------
+    // Insert or replace. Return DICTIONARY_OK (0) or a negative code.
+    int8_t      set(Key key, const char* value);          // NULL stores a null value
+    int8_t      set(Key key, const String& value)         { return set(key, value.c_str()); }
+    int8_t      set(Key key, const __FlashStringHelper* value) { return set(key, String(value)); }   // not bool
+    int8_t      set(Key key, bool value);
+    int8_t      set(Key key, signed char value)           { return setSigned(key, value); }
+    int8_t      set(Key key, unsigned char value)         { return setUnsigned(key, value); }
+    int8_t      set(Key key, short value)                 { return setSigned(key, value); }
+    int8_t      set(Key key, unsigned short value)        { return setUnsigned(key, value); }
+    int8_t      set(Key key, int value)                   { return setSigned(key, value); }
+    int8_t      set(Key key, unsigned int value)          { return setUnsigned(key, value); }
+    int8_t      set(Key key, long value)                  { return setSigned(key, value); }
+    int8_t      set(Key key, unsigned long value)         { return setUnsigned(key, value); }
+    int8_t      set(Key key, long long value)             { return setSigned(key, value); }
+    int8_t      set(Key key, unsigned long long value)    { return setUnsigned(key, value); }
+    int8_t      set(Key key, float value);
+    int8_t      set(Key key, double value);
+    int8_t      setNull(Key key);
 
-    size_t              size();
-    size_t              jsize();
-    size_t              esize();
-    
-    String              json();
-    int8_t              jload (const String& json, int aNum = 0);
-    int8_t              jload (Stream& json, int aNum = 0);
-    int8_t              merge (Dictionary& dict);
+    int8_t      remove(Key key);                          // a missing key is not an error
+    void        destroy();                                // remove everything, free all memory
+    int8_t      reserve(size_t n);                        // pre-allocate for n pairs
+    int8_t      merge(const Dictionary& other);           // copy every pair of other into this
 
+    int8_t      jload(const char* json, int n = 0);       // n > 0: load at most n pairs
+    int8_t      jload(const String& json, int n = 0)      { return jload(json.c_str(), n); }
+    int8_t      jload(Stream& json, int n = 0);
 
-    void operator = (Dictionary& dict) {
-      destroy();
-      merge(dict);
-    }
+    // ---- read (a missing key or an unconvertible value returns def) ------------
+    size_t      count() const                             { return iCount; }
+    bool        has(Key key) const;
+    DictType    type(Key key) const;                      // DICT_NONE when missing
 
-    inline String operator [] (const String& keystr) { return search(keystr); }
-    inline String operator [] (size_t i) { return value(i); }
-    inline int8_t operator () (String keystr, int32_t val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, float val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, double val) { return insert(keystr, val); }
-    inline int8_t operator () (String keystr, String valstr) { return insert(keystr, valstr); }
-    inline int8_t operator () (const char* keystr, const char* valstr) { return insert(keystr, valstr); }
-
-    bool operator () (const String& keystr);
-
-    String operator () (size_t i) { return key(i); }
-    bool operator == (Dictionary& b);
-    inline bool operator != (Dictionary& b) { return (!(*this == b)); }
-    inline size_t count() { return ( Q ? Q->count() : 0); }
-
-#ifdef _LIBDEBUG_
-    void printNode(node* root);
-    void printDictionary(node* root);
-    void printDictionary() {
-      Serial.printf("\nDictionary::printDictionary:\n");
-      printDictionary(iRoot);
-      Serial.println();
-    };
-    void printArray() {
-      Q->printArray();
-    };
+    int32_t     getInt(Key key, int32_t def = 0) const;
+    float       getFloat(Key key, float def = 0) const;
+    bool        getBool(Key key, bool def = false) const;
+#ifdef _DICT_WIDE_NUMBERS
+    int64_t     getInt64(Key key, int64_t def = 0) const;
+    double      getDouble(Key key, double def = 0) const;
 #endif
+    String      getString(Key key, const char* def = "") const;   // any type as text
+    size_t      getString(Key key, char* buf, size_t size) const; // no heap; returns full length
+    const char* peek(Key key) const;                      // zero-copy plain text, else NULL
+
+    // Positional access, in insertion order (preserved by remove).
+    const char* keyAt(size_t i) const;                    // zero-copy; NULL when out of range
+    DictType    typeAt(size_t i) const;
+    String      key(size_t i) const;
+    String      value(size_t i) const;
+
+    String      json() const;
+    size_t      json(Print& out) const;                   // stream it; returns bytes written
+    size_t      jsize() const;                            // json() length + 1
+    size_t      esize() const;                            // sum of key + 1 + value text + 1
+    size_t      size() const;                             // heap bytes requested (entries, array, index)
+
+    String      operator [] (Key key) const               { return getString(key); }
+    bool        operator == (const Dictionary& b) const;
+    bool        operator != (const Dictionary& b) const   { return !(*this == b); }
+
+    // ---- 3.x API, kept for compatibility (3.x behavior: values stored as text) ----
+    _DICT_DEPRECATED("use set()")         int8_t insert(Key key, const char* value)    { return set(key, value); }
+    _DICT_DEPRECATED("use set()")         int8_t insert(Key key, const String& value)  { return set(key, value); }
+    _DICT_DEPRECATED("use set()")         int8_t insert(Key key, int32_t value)        { return set(key, String(value)); }
+    _DICT_DEPRECATED("use set()")         int8_t insert(Key key, float value)          { return set(key, String(value)); }
+    _DICT_DEPRECATED("use set()")         int8_t insert(Key key, double value)         { return set(key, String(value)); }
+    _DICT_DEPRECATED("use set()")         int8_t operator () (Key key, const char* value)   { return set(key, value); }
+    _DICT_DEPRECATED("use set()")         int8_t operator () (Key key, const String& value) { return set(key, value); }
+    _DICT_DEPRECATED("use set()")         int8_t operator () (Key key, int32_t value)       { return set(key, String(value)); }
+    _DICT_DEPRECATED("use set()")         int8_t operator () (Key key, float value)         { return set(key, String(value)); }
+    _DICT_DEPRECATED("use set()")         int8_t operator () (Key key, double value)        { return set(key, String(value)); }
+    _DICT_DEPRECATED("use getString()")   String search(Key key) const                      { return getString(key); }
+    _DICT_DEPRECATED("use has()")         bool   operator () (Key key) const                { return has(key); }
+    _DICT_DEPRECATED("use key(i)")        String operator () (size_t i) const               { return key(i); }
+    _DICT_DEPRECATED("use value(i)")      String operator [] (size_t i) const               { return value(i); }
 
   private:
-// methods
-    int8_t              insert(uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen, const char* valstr, _DICT_VAL_TYPE vallen, node* leaf);
-    node*               search(uintNN_t key, node* leaf, const char* keystr, _DICT_KEY_TYPE keylen);
+    // One allocation per pair: this header, then the key bytes and a NUL, then the
+    // payload (text + NUL, packed text, or a numeric value; nothing for bool/null).
+    struct __attribute__((packed)) Entry {
+      uint8_t       type;     // DictType in the low 4 bits, BOOL_TRUE, PACKED
+      uint8_t       hash;     // top byte of the key hash: cheap prefilter for comparisons
+      _DICT_KLEN_T  klen;
+      _DICT_VLEN_T  vlen;     // text length, packed length, or numeric payload size
 
-    node*               deleteNode(node* root, uintNN_t key, const char* keystr, _DICT_KEY_TYPE keylen);
+      char*         key()           { return (char*)this + sizeof(Entry); }
+      const char*   key() const     { return (const char*)this + sizeof(Entry); }
+      char*         val()           { return key() + klen + 1; }
+      const char*   val() const     { return key() + klen + 1; }
+    };
 
-    uintNN_t            crc(const void* data, size_t n_bytes);
+    enum : uint8_t { TYPE_MASK = 0x0F, BOOL_TRUE = 0x10, PACKED = 0x80 };
+    enum : size_t  { NPOS = ~(size_t)0 };     // "not found" position
 
-#ifdef _DICT_COMPRESS
-    int8_t              compressKey(const char* aStr);
-    int8_t              compressValue(const char* aStr);
-    void                decompressKey(const char* aBuf, _DICT_KEY_TYPE aLen);
-    void                decompressValue(const char* aBuf, _DICT_VAL_TYPE aLen);
-#endif
+    static size_t   payloadBytes(uint8_t type, size_t vlen);
+    size_t          find(const char* key, size_t klen, uint32_t hash) const;
+    const Entry*    lookup(Key key) const;
+    int8_t          put(Key key, uint8_t type, const void* data, size_t len);
+    int8_t          putCopy(const Entry* src);
+    int8_t          grow(size_t need);
+    void            indexAdd(size_t pos, uint32_t hash);
+    bool            indexResize(size_t cap);
+    void            indexDelete(size_t pos, uint32_t hash);
+    void            indexPlace(size_t pos, uint32_t hash);
+    int8_t          setSigned(Key key, long long value);
+    int8_t          setUnsigned(Key key, unsigned long long value);
+    int8_t          storeBare(const char* key, const char* text, size_t len);
+    bool            integerOf(const Entry* e, int64_t& out) const;
+    bool            numberOf(const Entry* e, double& out) const;
+    bool            boolOf(const Entry* e, bool& out) const;
+    bool            textOf(const Entry* e, char* buf, size_t size) const;
 
-// data
-    node*               iRoot;
-    NodeArray*          Q;
-    size_t              initSize;
+    template<class S> void    renderValue(const Entry* e, S& out, bool json) const;
+    template<class S> void    emitJson(S& out) const;
+    template<class R> int8_t  parse(R& in, int n);
 
-    char*               iKeyTemp;
-    _DICT_KEY_TYPE      iKeyLen;
-    char*               iValTemp;
-    _DICT_VAL_TYPE      iValLen;
-
-    int8_t              iError;   // out-of-band error from deleteNode (which returns node*)
+    Entry**         iItems;     // insertion order; the only source of truth
+    _DICT_SLOT_T*   iIndex;     // optional hash index: entry position + 1, 0 = empty
+    size_t          iCount;
+    size_t          iCapacity;
+    size_t          iInitCap;
+    size_t          iIndexCap;  // slots, a power of two, or 0 when there is no index
 };
 
-#endif // #define _DICTIONARYDECLARATIONS_H_
-
-
-
-
-
-
+#endif // _DICTIONARYDECLARATIONS_H_

@@ -4,21 +4,15 @@
   Copyright (c) Anatoli Arkhipenko, 2020
   All Rights Reserved
 
-  This example test Dictionary functionality between various CRC options
-  and memory options: RAM or PSRAM (if present).
+  This example tests Dictionary functionality and measures lookup and delete
+  speed with data in RAM or PSRAM (if present).
   
   Compile and run on ESP32 boards only
 
 */
 
 
-//#define _DICT_CRC 16
-#define _DICT_CRC 32
-//#define _DICT_CRC 64
-
-#define _DICT_PACK_STRUCTURES
-//#define _DICT_COMPRESS_SHOCO
-//#define _DICT_COMPRESS_SMAZ
+//#define _DICT_COMPRESS         // built-in value compression
 #define _DICT_USE_PSRAM
 
 //#define _DICT_KEYLEN 64
@@ -1058,7 +1052,7 @@ void printD(Dictionary& a, bool justStats = false) {
   if (!justStats) {
     _PL("Dictionary contents:");
     for (int i = 0; i < a.count(); i++) {
-      _PP('\t'); _PP(a(i)); _PP(" : "); _PL(a[i]);
+      _PP('\t'); _PP(a.keyAt(i)); _PP(" : "); _PL(a.value(i));
     }
   }
   _PP("Current size = "); _PL(a.size());
@@ -1094,12 +1088,12 @@ void setup() {
   Dictionary& d = *d_ptr;
 
 
-  d("ssid", "devices");
-  d("pwd", "********");
-  d("url", "http://ota.home.net");
-  d("port", "80");
-  d("plumless", "plumless value");
-  d("buckeroo", "buckeroo value");
+  d.set("ssid", "devices");
+  d.set("pwd", "********");
+  d.set("url", "http://ota.home.net");
+  d.set("port", "80");
+  d.set("plumless", "plumless value");
+  d.set("buckeroo", "buckeroo value");
 
   _PL("TEST #1: Inserts");
   printD(d);
@@ -1114,8 +1108,8 @@ void setup() {
   _PL(d["does not exist"]);
 
   _PL("\nTEST #3: Replaces");
-  d("plumless", "plumless");
-  d("buckeroo", "buckeroo new value");
+  d.set("plumless", "plumless");
+  d.set("buckeroo", "buckeroo new value");
   printD(d);
 
   _PL("\nTEST #4: Deletes");
@@ -1149,14 +1143,14 @@ void setup() {
   for (int i = 0; i < KEYS; i++) {
     sprintf(kb, "%s-%s", WORDS[random(0, 1000)], WORDS[random(0, 1000)]);
     sprintf(kv, "%s %s %s %s", WORDS[random(0, 1000)], WORDS[random(0, 1000)], WORDS[random(0, 1000)], WORDS[random(0, 1000)]);
-    if (t(String(kb), String(kv))) {
+    if (t.set(kb, kv)) {
       Serial.printf("Error inserting %d - %s : %s\n", i, kb, kv);
       printH();
       for (;;);
     }
-    if (!t(kb) || t[kb] != kv) {
+    if (!t.has(kb) || t[kb] != kv) {
       Serial.printf("K-V mismatch %d - %s : %s\n", i, kb, kv);
-      _PP(t(kb)); _PP(" : "); _PL(t[kb]);
+      _PP(t.has(kb)); _PP(" : "); _PL(t[kb]);
       printH();
       delay(5000);
     }
@@ -1166,7 +1160,7 @@ void setup() {
   printD(t, true);
 
   _PL("Example key-value pair:");
-  _PP(t(0)); _PP(" : "); _PL(t[0]); _PL();
+  _PP(t.keyAt(0)); _PP(" : "); _PL(t.value(0)); _PL();
 
   _PL("Measuring lookup base loop");
   unsigned long t1 = micros();
@@ -1191,7 +1185,7 @@ void setup() {
   int l = t.count() - 1;
   unsigned long t5 = micros();
   for (int i = 0; i < KEYS; i++) {
-    String k = t(l--);
+    String k = t.key(l--);
   }
   unsigned long t6 = micros();
 
@@ -1199,7 +1193,7 @@ void setup() {
   l = t.count() - 1;
   unsigned long t7 = micros();
   for (int i = 0; i < KEYS; i++) {
-    String k = t(l--);
+    String k = t.key(l--);
     t.remove(k);
   }
   unsigned long t8 = micros();

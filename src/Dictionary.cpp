@@ -1,5 +1,6 @@
 // Implementation of the Dictionary data type
-// Copyright (C) Anatoli Arkhipenko, 2020
+// Copyright (c) 2020-2026 Anatoli Arkhipenko
+// Distributed under the BSD 3-Clause License. See LICENSE.txt.
 //
 // This translation unit compiles the Dictionary implementation for
 // PlatformIO / non-Arduino-IDE builds. Define _DICT_HEADER_AND_CPP as a

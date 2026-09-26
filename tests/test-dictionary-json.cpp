@@ -1,9 +1,11 @@
 // test-dictionary-json.cpp - json() output, jload() parsing (string & stream),
 // JSON comments, CRLF, unquoted values, escaping round-trips, size estimators,
-// and parse error codes. Default configuration.
+// and parse error codes, written against the 3.x API (compatibility suite; the
+// 4.0 parser behavior is covered in test-dictionary-jload.cpp).
 #include <gtest/gtest.h>
 #include "Arduino.h"
 #include "Dictionary.h"
+#include "TestStream.h"
 
 #include <string>
 
@@ -113,7 +115,7 @@ TEST_F(DictionaryJson, LoadWindowsLineEndings) {
 TEST_F(DictionaryJson, LoadFromStream) {
     Dictionary d;
     std::string buf = "{\"x\":\"10\",\"y\":\"20\"}";
-    ReadBufferStream stream((uint8_t*)buf.data(), buf.size());
+    TestStream stream(buf);
     ASSERT_EQ(d.jload(stream), DICTIONARY_OK);
     EXPECT_EQ(d.count(), 2u);
     EXPECT_STREQ(d["x"].c_str(), "10");

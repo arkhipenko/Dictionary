@@ -28,6 +28,7 @@ jobs:
         example:
           - "Dict_Example01"
           - "Dict_Example02_ESP32_PSRAM"
+          - "Dict_Benchmark"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,8 +46,9 @@ jobs:
       - name: Compile ${{ matrix.example }}
         run: arduino-cli compile --fqbn ${{ matrix.fqbn }} ./examples/${{ matrix.example }} --warnings more
 
-  # ESP8266 is memory-constrained, so it only gets a minimal basic-usage smoke
-  # sketch (insert/search/count/json/remove) rather than the full example.
+  # ESP8266 is memory-constrained, so it gets a minimal basic-usage smoke sketch
+  # (set/get/count/json/jload/remove) rather than the full example, plus the
+  # benchmark sketch, which sizes itself for the ESP8266 heap.
   ArduinoIDE_ESP8266_Basic:
     runs-on: ubuntu-latest
     steps:
@@ -73,9 +75,12 @@ jobs:
 
           void setup() {
             Serial.begin(115200);
-            d("ssid", "devices");
-            d.insert("port", "80");
+            d.set("ssid", "devices");
+            d.set("port", 80);
+            d.set("debug", true);
+            d.jload("{\"url\": \"http://ota.home.lan\"}");
             Serial.println(d["ssid"]);
+            Serial.println(d.getInt("port", 8080));
             Serial.println(d.count());
             Serial.println(d.json());
             d.remove("port");
@@ -84,6 +89,8 @@ jobs:
           EOF
       - name: Compile basic sketch
         run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 "$RUNNER_TEMP/DictBasicSmoke" --warnings more
+      - name: Compile Dict_Benchmark
+        run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./examples/Dict_Benchmark --warnings more
 
   # Verify the PlatformIO / non-Arduino-IDE consumption path: include
   # DictionaryDeclarations.h in user code and let the bundled Dictionary.cpp
@@ -111,7 +118,7 @@ jobs:
           platform = espressif32
           board = esp32dev
           framework = arduino
-          build_flags = -D _DICT_HEADER_AND_CPP
+          build_flags = -D _DICT_HEADER_AND_CPP -D _DICT_COMPRESS -D _DICT_TYPED_JSON
           EOF
           cat > "$PROJ/src/main.cpp" <<'EOF'
           #include <Arduino.h>
@@ -119,11 +126,14 @@ jobs:
 
           Dictionary d;
           void setup() {
-            d("ssid", "devices");
-            d.insert("port", "80");
+            d.set("ssid", "devices");
+            d.set("port", 80);
+            d.jload("{\"retries\": 3}");
             Serial.begin(115200);
             Serial.println(d["ssid"]);
+            Serial.println(d.getInt("retries"));
             Serial.println(d.json());
+            d.remove("ssid");
           }
           void loop() {}
           EOF

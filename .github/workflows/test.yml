@@ -19,9 +19,11 @@ on:
 
 jobs:
   # Native (host) Google Test suites. The library is header-only in test mode,
-  # so a mock tests/Arduino.h lets it compile off-device. All suites (default
-  # config, CRC 16/64, packed, long length types, SHOCO/SMAZ compression, and
-  # malloc fault injection) are defined in tests/CMakeLists.txt and run via ctest.
+  # so a mock tests/Arduino.h lets it compile off-device. All suites (3.x API
+  # compatibility, the 4.0 API under its build flags, the jload parser, a
+  # differential test against a reference model with the hash index off/on, the
+  # value codec, malloc fault injection, the split-header link test and the
+  # deprecation compile checks) are defined in tests/CMakeLists.txt and run via ctest.
   unit-tests:
     name: Unit Tests (Google Test)
     runs-on: ubuntu-latest
@@ -44,8 +46,8 @@ jobs:
         run: ctest --test-dir tests/build --output-on-failure
 
   # Same suites rebuilt with AddressSanitizer + UndefinedBehaviorSanitizer to
-  # catch invalid frees, use-after-free, and UB on the (fault-injected) error
-  # paths - the class of bug fixed in v3.6.0.
+  # catch invalid frees, use-after-free, leaks and UB, including on the
+  # fault-injected error paths.
   unit-tests-sanitized:
     name: Unit Tests (ASan + UBSan)
     runs-on: ubuntu-latest

@@ -1,15 +1,27 @@
-// test-dictionary-basic.cpp - core CRUD, positional access, operators, sizes.
-// Compiled against the DEFAULT configuration (CRC32, KEYLEN 64, VALLEN 254,
-// no compression, unpacked). Config variants reuse this same source with
-// different -D defines (see tests/CMakeLists.txt).
+// test-dictionary-basic.cpp - core CRUD, positional access, operators, sizes,
+// written against the 3.x API. In 4.0 that API is kept as deprecated wrappers,
+// so this suite doubles as the compatibility test: it is built with
+// _DICT_NO_DEPRECATION_WARNINGS and must keep passing unchanged. Config variants
+// reuse this same source with different -D defines (see tests/CMakeLists.txt).
 #include <gtest/gtest.h>
 #include "Arduino.h"
 #include "Dictionary.h"
 
 #include <string>
 #include <vector>
+#include <type_traits>
+#include <utility>
 
 class DictionaryBasic : public ::testing::Test {};
+
+// ---- compile-time contract (v3.6.1) -----------------------------------------
+// The implicit copy constructor used to copy raw pointers, so a copy double freed.
+static_assert(!std::is_copy_constructible<Dictionary>::value,
+              "Dictionary must not be copy-constructible");
+static_assert(std::is_nothrow_move_constructible<Dictionary>::value,
+              "Dictionary must be nothrow move-constructible");
+static_assert(std::is_nothrow_move_assignable<Dictionary>::value,
+              "Dictionary must be nothrow move-assignable");
 
 // ---- creation / empty state -------------------------------------------------
 TEST_F(DictionaryBasic, CreatesEmpty) {
@@ -147,6 +159,65 @@ TEST_F(DictionaryBasic, AssignmentCopiesContents) {
     EXPECT_STREQ(b["x"].c_str(), "1");
     EXPECT_STREQ(b["y"].c_str(), "2");
     EXPECT_TRUE(a == b);
+}
+
+// d = d used to destroy() first and then merge from the now-empty self.
+TEST_F(DictionaryBasic, SelfAssignmentKeepsContents) {
+    Dictionary d;
+    d("a", "1"); d("b", "2");
+    Dictionary& alias = d;
+    d = alias;
+    EXPECT_EQ(d.count(), 2u);
+    EXPECT_STREQ(d["a"].c_str(), "1");
+    EXPECT_STREQ(d["b"].c_str(), "2");
+}
+
+TEST_F(DictionaryBasic, AssignmentChains) {
+    Dictionary a, b, c;
+    a("x", "1");
+    c = b = a;
+    EXPECT_TRUE(b == a);
+    EXPECT_TRUE(c == a);
+}
+
+TEST_F(DictionaryBasic, MoveConstructTransfersContents) {
+    Dictionary a;
+    a("x", "1"); a("y", "2");
+    Dictionary b(std::move(a));
+    EXPECT_EQ(b.count(), 2u);
+    EXPECT_STREQ(b["x"].c_str(), "1");
+    EXPECT_STREQ(b["y"].c_str(), "2");
+    // the moved-from dictionary is empty and still usable
+    EXPECT_EQ(a.count(), 0u);
+    EXPECT_STREQ(a["x"].c_str(), "");
+    EXPECT_EQ(a.insert("z", "3"), DICTIONARY_OK);
+    EXPECT_STREQ(a["z"].c_str(), "3");
+}
+
+TEST_F(DictionaryBasic, MoveAssignReplacesContents) {
+    Dictionary a;
+    a("x", "1");
+    Dictionary b;
+    b("old", "gone");
+    b = std::move(a);
+    EXPECT_EQ(b.count(), 1u);
+    EXPECT_STREQ(b["x"].c_str(), "1");
+    EXPECT_STREQ(b["old"].c_str(), "");
+    EXPECT_EQ(a.count(), 0u);
+    EXPECT_EQ(a.insert("again", "ok"), DICTIONARY_OK);
+    EXPECT_STREQ(a["again"].c_str(), "ok");
+}
+
+static Dictionary makeDictionary() {
+    Dictionary d;
+    d("k", "v");
+    return d;
+}
+
+TEST_F(DictionaryBasic, ReturnByValueMoves) {
+    Dictionary d = makeDictionary();
+    EXPECT_EQ(d.count(), 1u);
+    EXPECT_STREQ(d["k"].c_str(), "v");
 }
 
 TEST_F(DictionaryBasic, MergeCombinesDictionaries) {

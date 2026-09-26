@@ -1,6 +1,6 @@
 // test-dictionary-delete.cpp - remove() semantics (leaf, one-child, two-child),
 // the documented bulk-delete idiom, destroy(), and delete/reinsert cycles.
-// Default configuration.
+// Written against the 3.x API (compatibility suite).
 #include <gtest/gtest.h>
 #include "Arduino.h"
 #include "Dictionary.h"

@@ -52,6 +52,14 @@ class Stream : public Print {
     virtual void flush() {}
 };
 
+// ---- flash strings ------------------------------------------------------------
+// On the host, flash is ordinary memory: F() just tags the pointer type.
+class __FlashStringHelper;
+#define F(s) (reinterpret_cast<const __FlashStringHelper*>(s))
+#ifndef PROGMEM
+#define PROGMEM
+#endif
+
 // ---- String -----------------------------------------------------------------
 // std::string-backed re-implementation of the subset of the Arduino String API
 // that the Dictionary library and its tests use. Behavior matches Arduino for
@@ -61,6 +69,7 @@ class String {
   public:
     String() {}
     String(const char* c) : s(c ? c : "") {}
+    String(const __FlashStringHelper* f) : s(f ? reinterpret_cast<const char*>(f) : "") {}
     String(const std::string& c) : s(c) {}
     String(char c) : s(1, c) {}
     String(int v)            : s(std::to_string(v)) {}
