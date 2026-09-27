@@ -9,13 +9,12 @@ build/
 *.a
 *.out
 
-CLAUDE.md
-.claude/
-# Claude / Design Central
-.dc/
+# Claude and Design Central files (never committed)
+CLAUDE*.md
+.claude*
+claude-*
+.dc*
 .mcp.json
-claude-start
-CLAUDE.local.md
 
-# Scratch folders
+# Folders starting with '_' (scratch, work in progress)
 _*/
